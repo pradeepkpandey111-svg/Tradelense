@@ -20,28 +20,38 @@ st.markdown("""
         .buy-card { background-color: #0e4429; padding: 14px; border-radius: 8px; border: 1px solid #00e676; margin-bottom: 12px; }
         .sell-card { background-color: #4a151b; padding: 14px; border-radius: 8px; border: 1px solid #ff5252; margin-bottom: 12px; }
         .hold-card { background-color: #2a2e39; padding: 14px; border-radius: 8px; margin-bottom: 12px; }
+        /* Style file uploader dropzone for mobile tapping */
+        section[data-testid="stFileUploadDropzone"] {
+            padding: 1.2rem;
+            cursor: pointer;
+        }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("📱 TradeLense Signal Terminal")
 
-# 2. File Upload Section
+# 2. File Upload Section (type constraints removed to trigger native mobile picker)
 with st.expander("📂 Tap to Upload Market Data", expanded=True):
-    stock_file = st.file_uploader("1. Share History (CSV)", type=["csv"], key="m_stock")
-    opt_file = st.file_uploader("2. Option Chain (CSV / XLSX)", type=["csv", "xlsx"], key="m_opt")
-    nifty_file = st.file_uploader("3. Nifty 50 History (CSV)", type=["csv"], key="m_nifty")
+    stock_file = st.file_uploader("1. Share History (CSV)", key="m_stock")
+    opt_file = st.file_uploader("2. Option Chain (CSV / XLSX)", key="m_opt")
+    nifty_file = st.file_uploader("3. Nifty 50 History (CSV)", key="m_nifty")
     
     st.markdown("**Risk Configuration**")
     risk_reward = st.slider("Target Multiplier (R:R)", 1.0, 3.0, 2.0, 0.5)
     atr_mult = st.slider("ATR Multiplier (Stop Loss)", 1.0, 2.5, 1.5, 0.1)
 
+# Helper: Read CSV or Excel flexibly
+def load_uploaded_file(uploaded_file):
+    if uploaded_file.name.lower().endswith(('.xlsx', '.xls')):
+        return pd.read_excel(uploaded_file)
+    return pd.read_csv(uploaded_file)
+
 # Pure Pandas Indicator Calculators
 def calculate_indicators(df):
-    # Exponential Moving Averages
     df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
     df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
 
-    # Relative Strength Index (RSI 14)
+    # RSI 14
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -49,7 +59,7 @@ def calculate_indicators(df):
     df['rsi'] = 100 - (100 / (1 + rs))
     df['rsi'] = df['rsi'].fillna(50)
 
-    # Average True Range (ATR 14)
+    # ATR 14
     tr1 = df['high'] - df['low']
     tr2 = (df['high'] - df['close'].shift()).abs()
     tr3 = (df['low'] - df['close'].shift()).abs()
@@ -59,7 +69,7 @@ def calculate_indicators(df):
     return df
 
 def clean_history(df):
-    df.columns = [c.strip().lower() for c in df.columns]
+    df.columns = [str(c).strip().lower() for c in df.columns]
     rename_map = {'datetime': 'time', 'timestamp': 'time', 'date': 'time'}
     df = df.rename(columns=rename_map)
     df['time'] = pd.to_datetime(df['time'])
@@ -70,7 +80,7 @@ def clean_history(df):
     return df
 
 def process_option_chain(opt_df):
-    opt_df.columns = [c.strip().lower().replace(" ", "_") for c in opt_df.columns]
+    opt_df.columns = [str(c).strip().lower().replace(" ", "_") for c in opt_df.columns]
     call_oi = next((c for c in opt_df.columns if 'ce_oi' in c or ('call' in c and 'oi' in c)), None)
     put_oi = next((c for c in opt_df.columns if 'pe_oi' in c or ('put' in c and 'oi' in c)), None)
     strike_col = next((c for c in opt_df.columns if 'strike' in c), None)
@@ -95,19 +105,25 @@ def process_option_chain(opt_df):
 # 3. Main Processing Pipeline
 if stock_file:
     try:
-        df = clean_history(pd.read_csv(stock_file))
+        df = clean_history(load_uploaded_file(stock_file))
         df = calculate_indicators(df)
 
         oc_data = None
         if opt_file:
-            opt_raw = pd.read_excel(opt_file) if opt_file.name.endswith('.xlsx') else pd.read_csv(opt_file)
-            oc_data = process_option_chain(opt_raw)
+            try:
+                opt_raw = load_uploaded_file(opt_file)
+                oc_data = process_option_chain(opt_raw)
+            except Exception as e:
+                st.warning(f"Could not read Option Chain file: {e}")
 
         nifty_sentiment = "Neutral"
         if nifty_file:
-            n_df = clean_history(pd.read_csv(nifty_file))
-            n_df['ema21'] = n_df['close'].ewm(span=21, adjust=False).mean()
-            nifty_sentiment = "Bullish" if n_df.iloc[-1]['close'] > n_df.iloc[-1]['ema21'] else "Bearish"
+            try:
+                n_df = clean_history(load_uploaded_file(nifty_file))
+                n_df['ema21'] = n_df['close'].ewm(span=21, adjust=False).mean()
+                nifty_sentiment = "Bullish" if n_df.iloc[-1]['close'] > n_df.iloc[-1]['ema21'] else "Bearish"
+            except Exception as e:
+                st.warning(f"Could not read Nifty file: {e}")
 
         curr = df.iloc[-1]
         prev = df.iloc[-2]
@@ -206,4 +222,4 @@ if stock_file:
     except Exception as e:
         st.error(f"Error parsing uploaded files: {e}")
 else:
-    st.info("👆 Tap the upload box above to load your stock CSV and begin analysis.")
+    st.info("👆 Tap 'Tap to Upload Market Data' above to load your stock CSV and begin analysis.")
