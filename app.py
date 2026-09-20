@@ -194,14 +194,14 @@ if df is not None and len(df) > 5:
         sl = round(max(sup, p - (1.2 * atr)), 1); rk = round(max(ce_entry - sl, atr * 0.8), 1)
         st.markdown(f"""<div class="ce-box">
         <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 BUY {strike} CE</b><span class="ca">{stars(b_s)} ({b_s}/5)</span></div>
-        <div class="g2"><div class="tile"><span class="lbl">ENTRY LEVEL (BUY ABOVE)</span><div class="val cb">{ce_entry:.1f}</div></div><div class="tile"><span class="lbl">EXIT LEVEL (STOP LOSS)</span><div class="val cr">{sl:.1f}</div></div></div>
+        <div class="g2"><div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Buy Above {ce_entry:.1f}</div></div><div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div></div>
         <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-            <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT LEVEL ROADMAP (INDEX TARGETS)</div>
-            <div class="rw"><span>Exit 1 (Book 50% Qty):</span><b class="cg">{ce_entry + rk:.1f} (+{rk:.1f} pts)</b></div>
-            <div class="rw"><span>Exit 2 (Final Target / Book All):</span><b class="cg">{ce_entry + (2*rk):.1f} (+{2*rk:.1f} pts)</b></div>
-            <div class="rw"><span>Trail SL (After Exit 1):</span><b class="cb">Move SL to Cost ({ce_entry:.1f})</b></div>
-            <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f} ({rk:.1f} pts)</b></div>
-            <div class="rw"><span>Total Profit at Exit 2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f} (+{2*rk:.1f} pts)</b></div>
+            <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT PLAN (TARGETS & RISK)</div>
+            <div class="rw"><span>🎯 Target 1 (T1) — Book 50%:</span><b class="cg">{ce_entry + rk:.1f} (+{rk:.1f} pts)</b></div>
+            <div class="rw"><span>🏁 Target 2 (T2) — Book All:</span><b class="cg">{ce_entry + (2*rk):.1f} (+{2*rk:.1f} pts)</b></div>
+            <div class="rw"><span>🛡️ Trailing SL (After T1 Hit):</span><b class="cb">Move SL to Cost ({ce_entry:.1f})</b></div>
+            <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f}</b></div>
+            <div class="rw"><span>Full Profit at T2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f}</b></div>
         </div>
         <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(b_reasons)}</div>
         </div>""", unsafe_allow_html=True)
@@ -209,14 +209,14 @@ if df is not None and len(df) > 5:
         sl = round(min(res, p + (1.2 * atr)), 1); rk = round(max(sl - pe_entry, atr * 0.8), 1)
         st.markdown(f"""<div class="pe-box">
         <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 BUY {strike} PE</b><span class="ca">{stars(be_s)} ({be_s}/5)</span></div>
-        <div class="g2"><div class="tile"><span class="lbl">ENTRY LEVEL (SELL BELOW)</span><div class="val cb">{pe_entry:.1f}</div></div><div class="tile"><span class="lbl">EXIT LEVEL (STOP LOSS)</span><div class="val cr">{sl:.1f}</div></div></div>
+        <div class="g2"><div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Sell Below {pe_entry:.1f}</div></div><div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div></div>
         <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-            <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT LEVEL ROADMAP (INDEX TARGETS)</div>
-            <div class="rw"><span>Exit 1 (Book 50% Qty):</span><b class="cg">{pe_entry - rk:.1f} (+{rk:.1f} pts)</b></div>
-            <div class="rw"><span>Exit 2 (Final Target / Book All):</span><b class="cg">{pe_entry - (2*rk):.1f} (+{2*rk:.1f} pts)</b></div>
-            <div class="rw"><span>Trail SL (After Exit 1):</span><b class="cb">Move SL to Cost ({pe_entry:.1f})</b></div>
-            <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f} ({rk:.1f} pts)</b></div>
-            <div class="rw"><span>Total Profit at Exit 2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f} (+{2*rk:.1f} pts)</b></div>
+            <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT PLAN (TARGETS & RISK)</div>
+            <div class="rw"><span>🎯 Target 1 (T1) — Book 50%:</span><b class="cg">{pe_entry - rk:.1f} (+{rk:.1f} pts)</b></div>
+            <div class="rw"><span>🏁 Target 2 (T2) — Book All:</span><b class="cg">{pe_entry - (2*rk):.1f} (+{2*rk:.1f} pts)</b></div>
+            <div class="rw"><span>🛡️ Trailing SL (After T1 Hit):</span><b class="cb">Move SL to Cost ({pe_entry:.1f})</b></div>
+            <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f}</b></div>
+            <div class="rw"><span>Full Profit at T2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f}</b></div>
         </div>
         <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(be_reasons)}</div>
         </div>""", unsafe_allow_html=True)
