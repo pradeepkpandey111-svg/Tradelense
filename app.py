@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. Advanced Terminal UI Styling (Fixes header cut-off & modernizes upload cards)
+# 2. Modern Terminal UI Styling (Fixes header cut-off & modernizes cards)
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
@@ -23,9 +23,9 @@ st.markdown("""
         color: #f1f5f9 !important;
     }
 
-    /* Proper padding so header is never clipped by mobile navigation */
+    /* Extra top padding so header is never clipped by mobile navigation */
     .block-container {
-        padding-top: 2.2rem !important;
+        padding-top: 2.4rem !important;
         padding-bottom: 2.5rem !important;
         padding-left: 0.7rem !important;
         padding-right: 0.7rem !important;
@@ -57,15 +57,6 @@ st.markdown("""
         margin-top: 3px;
     }
 
-    /* Modernized Upload Area */
-    .upload-shelf {
-        background: #0d131f;
-        border: 1px solid #1e293b;
-        border-radius: 12px;
-        padding: 12px;
-        margin-bottom: 12px;
-    }
-    
     /* Trade Action Cards */
     .call-card {
         background: linear-gradient(145deg, #062b20, #0a3d2e);
@@ -213,7 +204,7 @@ if nifty_file:
         # Pivot Points
         piv = (prev['high'] + prev['low'] + prev['close']) / 3
         r1 = (2 * piv) - prev['low']
-        s1 = (2 * piv) - prev_h = (2 * piv) - prev['high']
+        s1 = (2 * piv) - prev['high']
 
         oc = parse_chain(opt_file) if opt_file else None
         sup = oc['s'] if oc and oc['s'] < p else round(s1, 1)
@@ -273,7 +264,7 @@ if nifty_file:
                 bear_stars += 1
                 be_reasons.append("Price rejected below Central Pivot")
 
-        # --- NIFTY BENCHMARK STATUS BAR (No Stars Here) ---
+        # NIFTY BENCHMARK STATUS BAR
         st.markdown(f"""
         <div class="tile" style="margin-bottom:12px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -400,4 +391,4 @@ if nifty_file:
         st.error(f"Execution Error: {e}")
 else:
     st.info("👆 Tap 'Market Data Control Dock' above to load your data.")
-            
+    
