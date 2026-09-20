@@ -4,125 +4,142 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Page configuration
+# 1. Terminal Mobile Config
 st.set_page_config(
-    page_title="TradeLense Pro Signal Terminal",
+    page_title="TradeLense Neo Terminal",
     page_icon="⚡",
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# High-Contrast Mobile Styling (Fixes invisible dark text)
+# 2. Modern Cyberpunk / TradingView Dark Styling
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
-    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
     
-    .block-container { padding-top: 1rem; padding-bottom: 2rem; padding-left: 0.8rem; padding-right: 0.8rem; }
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        background-color: #0b0e14;
+        color: #f1f5f9;
+    }
     
-    /* Trade Plan Card */
-    .trade-card {
-        background: #1e293b;
-        border-radius: 12px;
+    .block-container {
+        padding: 0.8rem 0.6rem 2.5rem 0.6rem;
+    }
+    
+    /* Neon Glow Signal Cards */
+    .signal-card {
+        background: linear-gradient(145deg, #131822, #182030);
+        border-radius: 14px;
         padding: 16px;
         margin-bottom: 14px;
-        border-left: 6px solid #3b82f6;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        border: 1px solid #1e293b;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     }
-    .bullish-card { border-left-color: #10b981; background: #064e3b22; border: 1px solid #10b98155; }
-    .bearish-card { border-left-color: #ef4444; background: #7f1d1d22; border: 1px solid #ef444455; }
-    
-    .badge {
-        display: inline-block;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-weight: 800;
-        font-size: 0.85rem;
+    .bullish-glow {
+        border-top: 4px solid #10b981;
+        box-shadow: 0 4px 20px rgba(16, 185, 129, 0.15);
+    }
+    .bearish-glow {
+        border-top: 4px solid #f43f5e;
+        box-shadow: 0 4px 20px rgba(244, 63, 94, 0.15);
+    }
+    .neutral-glow {
+        border-top: 4px solid #f59e0b;
+    }
+
+    /* Grid Layouts */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px; }
+
+    /* Compact Metric Boxes */
+    .box {
+        background: #0d121c;
+        border-radius: 8px;
+        padding: 10px;
+        border: 1px solid #1e293b;
+    }
+    .box-title {
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
         letter-spacing: 0.5px;
     }
-    .badge-buy { background: #10b981; color: #ffffff; }
-    .badge-sell { background: #ef4444; color: #ffffff; }
-    .badge-wait { background: #f59e0b; color: #ffffff; }
-    
-    /* High contrast metrics */
-    .matrix-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-top: 10px;
-    }
-    .metric-box {
-        background: #0f172a;
-        padding: 10px 12px;
-        border-radius: 8px;
-        border: 1px solid #334155;
-    }
-    .metric-label {
-        font-size: 0.75rem;
-        color: #94a3b8;
-        font-weight: 600;
-        text-transform: uppercase;
-    }
-    .metric-val {
-        font-size: 1.15rem;
+    .box-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 1.05rem;
         font-weight: 700;
-        color: #f8fafc;
         margin-top: 2px;
     }
-    .val-green { color: #34d399 !important; }
-    .val-red { color: #f87171 !important; }
-    .val-blue { color: #60a5fa !important; }
     
-    .level-row {
+    .txt-green { color: #10b981 !important; }
+    .txt-red { color: #f43f5e !important; }
+    .txt-blue { color: #38bdf8 !important; }
+    .txt-amber { color: #fbbf24 !important; }
+
+    .badge-pill {
+        display: inline-block;
+        padding: 3px 8px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        border-radius: 6px;
+        letter-spacing: 0.5px;
+    }
+    .badge-green { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid #10b98144; }
+    .badge-red { background: rgba(244, 63, 94, 0.15); color: #f43f5e; border: 1px solid #f43f5e44; }
+    
+    /* Level row */
+    .level-item {
         display: flex;
         justify-content: space-between;
-        padding: 6px 0;
-        border-bottom: 1px solid #334155;
-        font-size: 0.88rem;
+        padding: 5px 0;
+        border-bottom: 1px solid #1a2233;
+        font-size: 0.84rem;
+        font-family: 'JetBrains Mono', monospace;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("## ⚡ TradeLense Pro Terminal")
-st.caption("F&O Algorithmic Confluence & Execution Planner")
+st.markdown("### ⚡ TradeLense Neo Terminal")
+st.caption("AI Confluence & Multi-Signal Execution Matrix")
 
 # File Upload Drawer
 with st.expander("📂 Upload Options Chain & Market History", expanded=True):
     nifty_file = st.file_uploader("1. Share / NIFTY History (CSV)", key="m_hist")
     opt_file = st.file_uploader("2. Option Chain (CSV / XLSX)", key="m_opt")
     
-    col_r1, col_r2 = st.columns(2)
-    with col_r1:
-        rr_ratio = st.selectbox("Target R:R Ratio", [1.5, 2.0, 2.5, 3.0], index=1)
-    with col_r2:
-        lot_size = st.number_input("Lot / Qty Size", value=50, step=25)
-        
-    btn_calc = st.button("🚀 Run Deep Trade Analysis", type="primary", use_container_width=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        rr_choice = st.selectbox("Risk:Reward Target", [1.5, 2.0, 2.5, 3.0], index=1)
+    with c2:
+        lot_size = st.number_input("Lot Size / Quantity", value=50, step=25)
 
-# Calculation Core
-def load_data(file):
+# --- CORE PARSING & MATHEMATICAL ENGINES ---
+def load_file(file):
     if file.name.lower().endswith(('.xlsx', '.xls')):
         return pd.read_excel(file)
     return pd.read_csv(file)
 
-def clean_ohlc(df):
+def prepare_ohlc(df):
     df.columns = [str(c).strip().lower() for c in df.columns]
-    time_col = next((c for c in df.columns if 'time' in c or 'date' in c), df.columns[0])
-    df = df.rename(columns={time_col: 'time'})
-    df['time'] = pd.to_datetime(df['time'], errors='coerce')
+    
+    # Locate Date / Time column
+    t_col = next((c for c in df.columns if 'time' in c or 'date' in c), df.columns[0])
+    df['time'] = pd.to_datetime(df[t_col], errors='coerce')
     df = df.dropna(subset=['time']).sort_values('time').reset_index(drop=True)
 
-    # Standardize column labels
-    for standard in ['open', 'high', 'low', 'close', 'volume']:
-        found = next((c for c in df.columns if standard in c or (standard == 'close' and 'ltp' in c)), None)
-        if found:
-            df[standard] = pd.to_numeric(df[found].astype(str).str.replace(',', ''), errors='coerce')
+    # Standardize OHLCV
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        match = next((c for c in df.columns if col in c or (col == 'close' and 'ltp' in c)), None)
+        if match:
+            df[col] = pd.to_numeric(df[match].astype(str).str.replace(',', ''), errors='coerce')
         else:
-            df[standard] = df['close'] if 'close' in df.columns else 0.0
+            df[col] = df['close'] if 'close' in df.columns else 0.0
 
     return df
 
-def compute_indicators(df):
+def run_indicators(df):
     # EMAs
     df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
     df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
@@ -143,223 +160,212 @@ def compute_indicators(df):
         (df['low'] - df['close'].shift()).abs()
     ], axis=1).max(axis=1)
     df['atr'] = tr.rolling(14).mean().bfill()
+
+    # Swing Highs & Lows (for Price-Action S/R)
+    df['swing_high'] = df['high'].rolling(15).max()
+    df['swing_low'] = df['low'].rolling(15).min()
+
     return df
 
-def parse_option_chain(df):
+def robust_option_chain_parser(df):
+    """Deep search for call/put columns across different NSE / broker formats"""
     df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
-    call_col = next((c for c in df.columns if 'ce_oi' in c or ('call' in c and 'oi' in c)), None)
-    put_col = next((c for c in df.columns if 'pe_oi' in c or ('put' in c and 'oi' in c)), None)
+    
+    call_col = next((c for c in df.columns if ('ce' in c and 'oi' in c) or ('call' in c and 'oi' in c)), None)
+    put_col = next((c for c in df.columns if ('pe' in c and 'oi' in c) or ('put' in c and 'oi' in c)), None)
     strike_col = next((c for c in df.columns if 'strike' in c), None)
 
-    if not (call_col and put_col and strike_col):
-        return None
+    if call_col and put_col and strike_col:
+        for c in [call_col, put_col, strike_col]:
+            df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+        
+        ce_sum = df[call_col].sum()
+        pe_sum = df[put_col].sum()
+        pcr = round(pe_sum / ce_sum, 2) if ce_sum > 0 else 1.0
+        
+        sup = df.loc[df[put_col].idxmax(), strike_col]
+        res = df.loc[df[call_col].idxmax(), strike_col]
+        return {"pcr": pcr, "support": float(sup), "resistance": float(res)}
+    return None
 
-    for c in [call_col, put_col, strike_col]:
-        df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-
-    total_ce = df[call_col].sum()
-    total_pe = df[put_col].sum()
-    pcr = round(total_pe / total_ce, 2) if total_ce > 0 else 1.0
-
-    support = df.loc[df[put_col].idxmax(), strike_col]
-    resistance = df.loc[df[call_col].idxmax(), strike_col]
-
-    return {
-        "pcr": pcr,
-        "support": support,
-        "resistance": resistance,
-        "sentiment": "Bullish (Put Writing Heavy)" if pcr > 1.1 else ("Bearish (Call Writing Heavy)" if pcr < 0.85 else "Neutral / Rangebound")
-    }
-
-# Execution Pipeline
+# --- EXECUTION ENGINE ---
 if nifty_file:
     try:
-        df = clean_ohlc(load_data(nifty_file))
-        df = compute_indicators(df)
-        
-        oc_data = None
-        if opt_file:
-            try:
-                oc_data = parse_option_chain(load_data(opt_file))
-            except Exception as e:
-                st.warning(f"Option Chain error: {e}")
+        raw_df = load_file(nifty_file)
+        df = prepare_ohlc(raw_df)
+        df = run_indicators(df)
 
-        # Market Snapshot
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         price = curr['close']
-        atr = curr['atr'] if pd.notna(curr['atr']) and curr['atr'] > 0 else (price * 0.006)
+        atr = curr['atr'] if pd.notna(curr['atr']) and curr['atr'] > 0 else (price * 0.005)
         rsi = curr['rsi']
         ema9 = curr['ema9']
         ema21 = curr['ema21']
 
-        # Determine Primary Bias
-        bull_votes = 0
-        bear_votes = 0
-        if ema9 > ema21: bull_votes += 1
-        else: bear_votes += 1
-        if price > ema21: bull_votes += 1
-        else: bear_votes += 1
-        if rsi > 52: bull_votes += 1
-        elif rsi < 48: bear_votes += 1
-        if oc_data:
-            if oc_data['pcr'] >= 1.05: bull_votes += 1
-            elif oc_data['pcr'] <= 0.85: bear_votes += 1
+        # Pivot Points Calculation (High/Low/Close of previous period)
+        prev_h = prev['high']
+        prev_l = prev['low']
+        prev_c = prev['close']
+        pivot = (prev_h + prev_l + prev_c) / 3
+        r1 = (2 * pivot) - prev_l
+        s1 = (2 * pivot) - prev_h
+        r2 = pivot + (prev_h - prev_l)
+        s2 = pivot - (prev_h - prev_l)
 
-        is_bullish = bull_votes >= 3
-        is_bearish = bear_votes >= 3
+        # Option Chain S/R vs Technical S/R
+        oc = None
+        if opt_file:
+            try:
+                oc = robust_option_chain_parser(load_file(opt_file))
+            except Exception:
+                pass
 
-        # Suggested Strikes
-        atm_strike = round(price / 50) * 50
+        # Confluence Support & Resistance Levels
+        primary_sup = oc['support'] if oc and oc['support'] < price else round(s1, 1)
+        primary_res = oc['resistance'] if oc and oc['resistance'] > price else round(r1, 1)
+        atm_strike = int(round(price / 50) * 50)
 
-        # Detailed Signal Badge
-        if is_bullish:
-            bias_title = "🟢 PRIMARY BIAS: STRONG BULLISH (BUY CE / LONG)"
-            card_class = "bullish-card"
-            rec_action = f"BUY {int(atm_strike)} CALL (CE)"
-        elif is_bearish:
-            bias_title = "🔴 PRIMARY BIAS: STRONG BEARISH (BUY PE / SHORT)"
-            card_class = "bearish-card"
-            rec_action = f"BUY {int(atm_strike)} PUT (PE)"
-        else:
-            bias_title = "⏸️ PRIMARY BIAS: CONSOLIDATION / NEUTRAL"
-            card_class = "trade-card"
-            rec_action = f"Wait for Breakout above {price + (0.5*atr):.1f} or Breakdown below {price - (0.5*atr):.1f}"
-
+        # --- SECTION 1: KEY LEVELS SUMMARY BAR ---
         st.markdown(f"""
-        <div class="trade-card {card_class}">
-            <h4 style="margin:0; color:#f8fafc;">{bias_title}</h4>
-            <p style="margin:4px 0 0 0; color:#94a3b8; font-size:0.9rem;">
-                Action: <b style="color:#ffffff;">{rec_action}</b> | LTP: <b>{price:.2f}</b>
-            </p>
+        <div class="box" style="margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <span class="box-title">CURRENT MARKET PRICE (LTP)</span>
+                    <div class="box-value txt-blue">{price:.2f}</div>
+                </div>
+                <div style="text-align:right;">
+                    <span class="badge-pill {'badge-green' if rsi > 50 else 'badge-red'}">RSI {rsi:.1f}</span>
+                    <span class="badge-pill {'badge-green' if ema9 > ema21 else 'badge-red'}">EMA 9/21 {'BULL' if ema9 > ema21 else 'BEAR'}</span>
+                </div>
+            </div>
+            <div class="grid-3" style="margin-top:8px;">
+                <div class="box" style="background:#080b11;">
+                    <div class="box-title">SUPPORT (S1 / PE WALL)</div>
+                    <div class="box-value txt-green">{primary_sup:.1f}</div>
+                </div>
+                <div class="box" style="background:#080b11;">
+                    <div class="box-title">PIVOT LEVEL</div>
+                    <div class="box-value txt-amber">{pivot:.1f}</div>
+                </div>
+                <div class="box" style="background:#080b11;">
+                    <div class="box-title">RESISTANCE (R1 / CE WALL)</div>
+                    <div class="box-value txt-red">{primary_res:.1f}</div>
+                </div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # Tabbed Comprehensive Trade Levels
-        tab_long, tab_short, tab_confluence = st.tabs(["📈 Call (CE) Setup", "📉 Put (PE) Setup", "🔍 Indicator Breakdown"])
+        # --- SECTION 2: MULTIPLE ACTIONABLE SIGNALS ---
+        st.markdown("#### 🎯 Active Execution Setups")
 
-        with tab_long:
-            long_entry = round(price, 2)
-            long_sl = round((oc_data['support'] if oc_data and oc_data['support'] < price else price - (1.2 * atr)), 2)
-            long_risk = max(long_entry - long_sl, atr * 0.8)
-            long_t1 = round(long_entry + (long_risk * 1.0), 2)
-            long_t2 = round(long_entry + (long_risk * rr_ratio), 2)
-            long_t3 = round(long_entry + (long_risk * (rr_ratio + 1.0)), 2)
-            profit_t2 = round((long_t2 - long_entry) * lot_size, 0)
-            max_loss = round((long_entry - long_sl) * lot_size, 0)
+        # SIGNAL 1: Primary Trend Follower
+        is_bullish = ema9 > ema21 and rsi >= 48
+        s1_title = f"🟢 SETUP 1: TREND SCALP ({atm_strike} CE)" if is_bullish else f"🔴 SETUP 1: TREND SCALP ({atm_strike} PE)"
+        s1_class = "bullish-glow" if is_bullish else "bearish-glow"
+        s1_entry = price
+        s1_sl = round(price - (1.2 * atr), 1) if is_bullish else round(price + (1.2 * atr), 1)
+        s1_risk = abs(s1_entry - s1_sl)
+        s1_t1 = round(s1_entry + (s1_risk * 1.0), 1) if is_bullish else round(s1_entry - (s1_risk * 1.0), 1)
+        s1_t2 = round(s1_entry + (s1_risk * rr_choice), 1) if is_bullish else round(s1_entry - (s1_risk * rr_choice), 1)
+        pnl_s1 = round(s1_risk * rr_choice * lot_size, 0)
+        risk_s1 = round(s1_risk * lot_size, 0)
 
-            st.markdown(f"""
-            <div class="matrix-grid">
-                <div class="metric-box">
-                    <div class="metric-label">Trigger / Entry</div>
-                    <div class="metric-val val-blue">{long_entry:.2f}</div>
-                </div>
-                <div class="metric-box">
-                    <div class="metric-label">Stop-Loss (SL)</div>
-                    <div class="metric-val val-red">{long_sl:.2f}</div>
-                </div>
-                <div class="metric-box">
-                    <div class="metric-label">Target 1 (1:1)</div>
-                    <div class="metric-val val-green">{long_t1:.2f}</div>
-                </div>
-                <div class="metric-box">
-                    <div class="metric-label">Target 2 ({rr_ratio}R)</div>
-                    <div class="metric-val val-green">{long_t2:.2f}</div>
-                </div>
-                <div class="metric-box">
-                    <div class="metric-label">Max Risk / Lot</div>
-                    <div class="metric-val val-red">-₹{max_loss:,.0f}</div>
-                </div>
-                <div class="metric-box">
-                    <div class="metric-label">Est. Gain (T2)</div>
-                    <div class="metric-val val-green">+₹{profit_t2:,.0f}</div>
-                </div>
+        st.markdown(f"""
+        <div class="signal-card {s1_class}">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <b style="font-size:0.95rem;">{s1_title}</b>
+                <span class="badge-pill {'badge-green' if is_bullish else 'badge-red'}">MOMENTUM CONFIRMED</span>
             </div>
-            <br>
-            <div class="metric-box">
-                <div class="level-row"><span style="color:#94a3b8;">Target 3 (Runner):</span><b>{long_t3:.2f}</b></div>
-                <div class="level-row"><span style="color:#94a3b8;">Risk per Share/Index:</span><b>{long_risk:.2f} pts</b></div>
-                <div class="level-row"><span style="color:#94a3b8;">Ideal Option Contract:</span><b>{int(atm_strike)} CE</b></div>
+            <div class="grid-2">
+                <div class="box"><div class="box-title">ENTRY TRIGGER</div><div class="box-value txt-blue">{s1_entry:.1f}</div></div>
+                <div class="box"><div class="box-title">STOP LOSS</div><div class="box-value txt-red">{s1_sl:.1f}</div></div>
+                <div class="box"><div class="box-title">TARGET 1 (SAFE EXIT)</div><div class="box-value txt-green">{s1_t1:.1f}</div></div>
+                <div class="box"><div class="box-title">TARGET 2 ({rr_choice}x R:R)</div><div class="box-value txt-green">{s1_t2:.1f}</div></div>
             </div>
-            """, unsafe_allow_html=True)
-
-        with tab_short:
-            short_entry = round(price, 2)
-            short_sl = round((oc_data['resistance'] if oc_data and oc_data['resistance'] > price else price + (1.2 * atr)), 2)
-            short_risk = max(short_sl - short_entry, atr * 0.8)
-            short_t1 = round(short_entry - (short_risk * 1.0), 2)
-            short_t2 = round(short_entry - (short_risk * rr_ratio), 2)
-            short_t3 = round(short_entry - (short_risk * (rr_ratio + 1.0)), 2)
-            profit_short_t2 = round((short_entry - short_t2) * lot_size, 0)
-            loss_short = round((short_sl - short_entry) * lot_size, 0)
-
-            st.markdown(f"""
-            <div class="matrix-grid">
-                <div class="metric-box">
-                    <div class="metric-label">Trigger / Entry</div>
-                    <div class="metric-val val-blue">{short_entry:.2f}</div>
-                </div>
-                <div class="metric-box">
-                    <div class="metric-label">Stop-Loss (SL)</div>
-                    <div class="metric-val val-red">{short_sl:.2f}</div>
-                </div>
-                <div class="metric-box">
-                    <div class="metric-label">Target 1 (1:1)</div>
-                    <div class="metric-val val-green">{short_t1:.2f}</div>
-                </div>
-                <div class="metric-box">
-                    <div class="metric-label">Target 2 ({rr_ratio}R)</div>
-                    <div class="metric-val val-green">{short_t2:.2f}</div>
-                </div>
-                <div class="metric-box">
-                    <div class="metric-label">Max Risk / Lot</div>
-                    <div class="metric-val val-red">-₹{loss_short:,.0f}</div>
-                </div>
-                <div class="metric-box">
-                    <div class="metric-label">Est. Gain (T2)</div>
-                    <div class="metric-val val-green">+₹{profit_short_t2:,.0f}</div>
-                </div>
+            <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:0.85rem; font-family:'JetBrains Mono';">
+                <span>Max Risk: <b class="txt-red">-₹{risk_s1:,.0f}</b></span>
+                <span>Est. Profit: <b class="txt-green">+₹{pnl_s1:,.0f}</b></span>
             </div>
-            <br>
-            <div class="metric-box">
-                <div class="level-row"><span style="color:#94a3b8;">Target 3 (Runner):</span><b>{short_t3:.2f}</b></div>
-                <div class="level-row"><span style="color:#94a3b8;">Risk per Share/Index:</span><b>{short_risk:.2f} pts</b></div>
-                <div class="level-row"><span style="color:#94a3b8;">Ideal Option Contract:</span><b>{int(atm_strike)} PE</b></div>
-            </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
 
-        with tab_confluence:
-            st.markdown(f"""
-            <div class="metric-box">
-                <div class="level-row"><span>RSI (14 Momentum):</span><b>{rsi:.1f} ({'Bullish (>50)' if rsi > 50 else 'Bearish (<50)'})</b></div>
-                <div class="level-row"><span>Fast Trend (EMA 9):</span><b>{ema9:.2f}</b></div>
-                <div class="level-row"><span>Slow Trend (EMA 21):</span><b>{ema21:.2f}</b></div>
-                <div class="level-row"><span>ATR (Volatility / Candle):</span><b>± {atr:.2f} pts</b></div>
-                <div class="level-row"><span>Option Put-Call Ratio:</span><b>{oc_data['pcr'] if oc_data else 'N/A'}</b></div>
-                <div class="level-row"><span>Major Support (Max PE OI):</span><b style="color:#34d399;">{oc_data['support'] if oc_data else 'N/A'}</b></div>
-                <div class="level-row"><span>Major Resistance (Max CE OI):</span><b style="color:#f87171;">{oc_data['resistance'] if oc_data else 'N/A'}</b></div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # High-Contrast Mobile Chart
-        st.markdown("### 📊 Interactive Chart View")
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.72, 0.28])
+        # SIGNAL 2: Breakout / Breakdown Setup
+        breakout_trigger = round(max(primary_res, curr['swing_high']), 1)
+        breakdown_trigger = round(min(primary_sup, curr['swing_low']), 1)
         
-        plot_df = df.tail(50)
+        st.markdown(f"""
+        <div class="signal-card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <b style="font-size:0.95rem;">⚡ SETUP 2: BREAKOUT / BREAKDOWN RADAR</b>
+                <span class="badge-pill" style="background:#334155; color:#94a3b8;">TRIGGER ON CONFIRM</span>
+            </div>
+            <div class="level-item" style="margin-top:10px;">
+                <span>🟢 Bullish Breakout Entry (Above R1):</span>
+                <b class="txt-green">> {breakout_trigger}</b>
+            </div>
+            <div class="level-item">
+                <span>↳ Upside Target / Extension:</span>
+                <b>{breakout_trigger + (1.5 * atr):.1f} (SL: {breakout_trigger - (0.8 * atr):.1f})</b>
+            </div>
+            <div class="level-item">
+                <span>🔴 Bearish Breakdown Entry (Below S1):</span>
+                <b class="txt-red">< {breakdown_trigger}</b>
+            </div>
+            <div class="level-item">
+                <span>↳ Downside Target / Extension:</span>
+                <b>{breakdown_trigger - (1.5 * atr):.1f} (SL: {breakdown_trigger + (0.8 * atr):.1f})</b>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # SIGNAL 3: Reversal / Value Area Pullback
+        st.markdown(f"""
+        <div class="signal-card">
+            <b style="font-size:0.95rem;">🔄 SETUP 3: SUPPORT REBOUND / PULLBACK BUY</b>
+            <div class="grid-2">
+                <div class="box">
+                    <div class="box-title">BUY ZONE (ACCUMULATE)</div>
+                    <div class="box-value txt-green">{primary_sup:.1f} - {primary_sup + (0.5*atr):.1f}</div>
+                </div>
+                <div class="box">
+                    <div class="box-title">HARD INVALIDATION (SL)</div>
+                    <div class="box-value txt-red">< {primary_sup - (0.8*atr):.1f}</div>
+                </div>
+            </div>
+            <div class="level-item" style="margin-top:8px;">
+                <span>Take-Profit 1 (Rebound to Pivot):</span>
+                <b class="txt-green">{pivot:.1f}</b>
+            </div>
+            <div class="level-item">
+                <span>Take-Profit 2 (Rebound to R1):</span>
+                <b class="txt-green">{primary_res:.1f}</b>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # --- SECTION 3: INTERACTIVE MULTI-PANE CHART ---
+        st.markdown("#### 📈 Interactive Candlestick Chart")
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.72, 0.28])
+
+        # Plot 45 most recent candles
+        sub_df = df.tail(45)
         fig.add_trace(go.Candlestick(
-            x=plot_df['time'], open=plot_df['open'], high=plot_df['high'], low=plot_df['low'], close=plot_df['close'],
-            increasing_line_color='#10b981', decreasing_line_color='#ef4444', name="Price"
+            x=sub_df['time'], open=sub_df['open'], high=sub_df['high'], low=sub_df['low'], close=sub_df['close'],
+            increasing_line_color='#10b981', decreasing_line_color='#f43f5e', name="Price"
         ), row=1, col=1)
-        
-        fig.add_trace(go.Scatter(x=plot_df['time'], y=plot_df['ema9'], line=dict(color='#f59e0b', width=1.5), name="EMA 9"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=plot_df['time'], y=plot_df['ema21'], line=dict(color='#3b82f6', width=1.5), name="EMA 21"), row=1, col=1)
 
-        if oc_data:
-            fig.add_hline(y=oc_data['support'], line_dash="dash", line_color="#10b981", annotation_text="Support (Max PE)", row=1, col=1)
-            fig.add_hline(y=oc_data['resistance'], line_dash="dash", line_color="#ef4444", annotation_text="Resistance (Max CE)", row=1, col=1)
+        # Moving Averages
+        fig.add_trace(go.Scatter(x=sub_df['time'], y=sub_df['ema9'], line=dict(color='#38bdf8', width=1.5), name="EMA 9"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=sub_df['time'], y=sub_df['ema21'], line=dict(color='#f59e0b', width=1.5), name="EMA 21"), row=1, col=1)
 
-        fig.add_trace(go.Scatter(x=plot_df['time'], y=plot_df['rsi'], line=dict(color='#a855f7', width=1.5), name="RSI"), row=2, col=1)
-        fig.add_hline(y=70, line_dash="dot", line_color="#ef4444", row=2, col=1)
+        # Support & Resistance Overlays
+        fig.add_hline(y=primary_sup, line_dash="dash", line_color="#10b981", annotation_text=f"Support {primary_sup:.0f}", row=1, col=1)
+        fig.add_hline(y=primary_res, line_dash="dash", line_color="#f43f5e", annotation_text=f"Resistance {primary_res:.0f}", row=1, col=1)
+
+        # RSI Panel
+        fig.add_trace(go.Scatter(x=sub_df['time'], y=sub_df['rsi'], line=dict(color='#c084fc', width=1.5), name="RSI"), row=2, col=1)
+        fig.add_hline(y=70, line_dash="dot", line_color="#f43f5e", row=2, col=1)
         fig.add_hline(y=30, line_dash="dot", line_color="#10b981", row=2, col=1)
 
         fig.update_layout(
@@ -367,13 +373,13 @@ if nifty_file:
             margin=dict(l=5, r=5, t=10, b=10),
             xaxis_rangeslider_visible=False,
             template="plotly_dark",
-            paper_bgcolor="#0f172a",
-            plot_bgcolor="#0f172a",
+            paper_bgcolor="#0b0e14",
+            plot_bgcolor="#0b0e14",
             showlegend=False
         )
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
     except Exception as e:
-        st.error(f"Analysis error: {e}")
+        st.error(f"Analysis failed: {e}")
 else:
-    st.info("👆 Tap 'Upload Options Chain & Market History' above, select your files, and tap 'Run Deep Trade Analysis'.")
+    st.info("👆 Tap 'Upload Options Chain & Market History' above to begin.")
