@@ -20,25 +20,23 @@ st.markdown("""
         .buy-card { background-color: #0e4429; padding: 14px; border-radius: 8px; border: 1px solid #00e676; margin-bottom: 12px; }
         .sell-card { background-color: #4a151b; padding: 14px; border-radius: 8px; border: 1px solid #ff5252; margin-bottom: 12px; }
         .hold-card { background-color: #2a2e39; padding: 14px; border-radius: 8px; margin-bottom: 12px; }
-        /* Style file uploader dropzone for mobile tapping */
-        section[data-testid="stFileUploadDropzone"] {
-            padding: 1.2rem;
-            cursor: pointer;
-        }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("📱 TradeLense Signal Terminal")
 
-# 2. File Upload Section (type constraints removed to trigger native mobile picker)
+# 2. File Upload Section
 with st.expander("📂 Tap to Upload Market Data", expanded=True):
-    stock_file = st.file_uploader("1. Share History (CSV)", key="m_stock")
+    stock_file = st.file_uploader("1. Share History (CSV) - Optional if analyzing Nifty", key="m_stock")
     opt_file = st.file_uploader("2. Option Chain (CSV / XLSX)", key="m_opt")
     nifty_file = st.file_uploader("3. Nifty 50 History (CSV)", key="m_nifty")
     
     st.markdown("**Risk Configuration**")
     risk_reward = st.slider("Target Multiplier (R:R)", 1.0, 3.0, 2.0, 0.5)
     atr_mult = st.slider("ATR Multiplier (Stop Loss)", 1.0, 2.5, 1.5, 0.1)
+
+    # Submit Button
+    run_analysis = st.button("⚡ Run Signal Analysis", type="primary", use_container_width=True)
 
 # Helper: Read CSV or Excel flexibly
 def load_uploaded_file(uploaded_file):
@@ -70,13 +68,26 @@ def calculate_indicators(df):
 
 def clean_history(df):
     df.columns = [str(c).strip().lower() for c in df.columns]
-    rename_map = {'datetime': 'time', 'timestamp': 'time', 'date': 'time'}
+    rename_map = {'datetime': 'time', 'timestamp': 'time', 'date': 'time', 'ltp': 'close'}
     df = df.rename(columns=rename_map)
-    df['time'] = pd.to_datetime(df['time'])
-    df = df.sort_values('time').reset_index(drop=True)
+    
+    # Try finding time column
+    time_col = next((c for c in df.columns if 'time' in c or 'date' in c), df.columns[0])
+    df['time'] = pd.to_datetime(df[time_col], errors='coerce')
+    df = df.dropna(subset=['time']).sort_values('time').reset_index(drop=True)
+
     for col in ['open', 'high', 'low', 'close', 'volume']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')
+    
+    # If High/Low are missing, approximate with Close
+    if 'high' not in df.columns:
+        df['high'] = df['close']
+    if 'low' not in df.columns:
+        df['low'] = df['close']
+    if 'open' not in df.columns:
+        df['open'] = df['close']
+
     return df
 
 def process_option_chain(opt_df):
@@ -102,10 +113,13 @@ def process_option_chain(opt_df):
         "sentiment": "Bullish" if pcr >= 1.1 else ("Bearish" if pcr <= 0.8 else "Neutral")
     }
 
-# 3. Main Processing Pipeline
-if stock_file:
+# 3. Main Processing Pipeline (Triggers on Stock OR Nifty upload)
+target_file = stock_file if stock_file else nifty_file
+file_label = "Stock History" if stock_file else "NIFTY 50 Index"
+
+if target_file and (run_analysis or True):
     try:
-        df = clean_history(load_uploaded_file(stock_file))
+        df = clean_history(load_uploaded_file(target_file))
         df = calculate_indicators(df)
 
         oc_data = None
@@ -114,16 +128,7 @@ if stock_file:
                 opt_raw = load_uploaded_file(opt_file)
                 oc_data = process_option_chain(opt_raw)
             except Exception as e:
-                st.warning(f"Could not read Option Chain file: {e}")
-
-        nifty_sentiment = "Neutral"
-        if nifty_file:
-            try:
-                n_df = clean_history(load_uploaded_file(nifty_file))
-                n_df['ema21'] = n_df['close'].ewm(span=21, adjust=False).mean()
-                nifty_sentiment = "Bullish" if n_df.iloc[-1]['close'] > n_df.iloc[-1]['ema21'] else "Bearish"
-            except Exception as e:
-                st.warning(f"Could not read Nifty file: {e}")
+                st.warning(f"Option Chain note: {e}")
 
         curr = df.iloc[-1]
         prev = df.iloc[-2]
@@ -157,6 +162,7 @@ if stock_file:
             target = round(entry - (risk * risk_reward), 2)
 
         # 4. Result Displays
+        st.subheader(f"📊 Analysis for {file_label}")
         if signal == "BUY":
             st.markdown(f"""
                 <div class="buy-card">
@@ -175,12 +181,12 @@ if stock_file:
             st.markdown(f"""
                 <div class="hold-card">
                     <h3 style="margin:0; color:#b2b5be;">⏸️ NO TRADE / HOLD</h3>
-                    <p style="margin:4px 0 0 0;">LTP: <b>{price:.2f}</b> | Waiting for confluence confirmation</p>
+                    <p style="margin:4px 0 0 0;">LTP: <b>{price:.2f}</b> | Waiting for trend & PCR confluence</p>
                 </div>
             """, unsafe_allow_html=True)
 
         c1, c2 = st.columns(2)
-        c1.metric("Entry Level", f"{entry:.2f}")
+        c1.metric("Recommended Entry", f"{entry:.2f}")
         c2.metric("Stop Loss", f"{sl:.2f}" if signal != "NO SIGNAL / HOLD" else "-")
 
         c3, c4 = st.columns(2)
@@ -189,7 +195,7 @@ if stock_file:
         c4.metric("Est. P&L", pnl_pts)
 
         if oc_data:
-            st.markdown(f"**Levels:** 🟢 Support: `{oc_data['support']}` | 🔴 Resistance: `{oc_data['resistance']}` | PCR: `{oc_data['pcr']}`")
+            st.markdown(f"**Option Chain Levels:** 🟢 Support: `{oc_data['support']}` | 🔴 Resistance: `{oc_data['resistance']}` | PCR: `{oc_data['pcr']}` ({oc_data['sentiment']})")
 
         # 5. Mobile Candlestick Chart
         st.markdown("### Chart & Indicators")
@@ -222,4 +228,4 @@ if stock_file:
     except Exception as e:
         st.error(f"Error parsing uploaded files: {e}")
 else:
-    st.info("👆 Tap 'Tap to Upload Market Data' above to load your stock CSV and begin analysis.")
+    st.info("👆 Tap 'Tap to Upload Market Data' above to load your data.")
