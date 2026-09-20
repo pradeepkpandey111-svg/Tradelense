@@ -2,7 +2,7 @@ import streamlit as st, pandas as pd, numpy as np, plotly.graph_objects as go, y
 from plotly.subplots import make_subplots
 from datetime import datetime, timezone, timedelta
 
-# Explicit Indian Standard Time (IST = UTC + 5:30)
+# Indian Standard Time (IST = UTC + 5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
 
 st.set_page_config(page_title="TradeLense AI", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
@@ -56,7 +56,6 @@ if mode == "⚡ Live Stream":
     b1, b2 = st.columns([1, 1.4])
     if b1.button("🔄 Sync Live", use_container_width=True, type="primary"):
         st.cache_data.clear(); st.rerun()
-    # Correct Date & 12-Hour Time in IST
     ist_now = datetime.now(IST).strftime("%d-%b-%Y | %I:%M:%S %p")
     b2.markdown(f"<div style='font-size:0.75rem; color:#94a3b8; font-weight:700; margin-top:6px;'>🕒 Synced: <span style='color:#38bdf8;'>{ist_now}</span></div>", unsafe_allow_html=True)
 
@@ -121,23 +120,27 @@ def fetch_chain(s_sym):
 oc = fetch_chain(nse_sym) if mode == "⚡ Live Stream" else None
 df = None
 
-with st.expander("📂 Option Chain & CSV Upload Dock", expanded=(mode == "📁 Upload CSV")):
-    if mode == "📁 Upload CSV":
-        hf = st.file_uploader(f"1. {inst} History (CSV)", key="h")
+# Upload dock is hidden completely during Live Stream
+if mode == "📁 Upload CSV":
+    with st.expander("📂 Manual CSV / Option Chain Uploader", expanded=True):
+        hf = st.file_uploader(f"1. Upload {inst} Historical Candles (CSV)", key="hist_upload")
         if hf:
             df = pd.read_csv(hf); df.columns = [str(x).strip().lower() for x in df.columns]
             t = next((x for x in df.columns if 'time' in x or 'date' in x), df.columns[0])
             df['time'] = pd.to_datetime(df[t], errors='coerce')
             df = df.dropna(subset=['time']).sort_values('time').reset_index(drop=True)
-    opf = st.file_uploader("2. Override Option Chain (CSV / XLSX)", key="o")
-    if opf:
-        odf = pd.read_excel(opf) if opf.name.lower().endswith(('.xlsx', '.xls')) else pd.read_csv(opf)
-        odf.columns = [str(x).strip().lower().replace(" ", "_") for x in odf.columns]
-        c_c, p_c, s_c = next((x for x in odf.columns if 'ce' in x and 'oi' in x), None), next((x for x in odf.columns if 'pe' in x and 'oi' in x), None), next((x for x in odf.columns if 'strike' in x), None)
-        if c_c and p_c and s_c:
-            for x in [c_c, p_c, s_c]: odf[x] = pd.to_numeric(odf[x].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            pcr = round(odf[p_c].sum() / odf[c_c].sum(), 2) if odf[c_c].sum() > 0 else 1.0
-            oc = {"pcr": pcr, "s": float(odf.loc[odf[p_c].idxmax(), s_c]), "r": float(odf.loc[odf[c_c].idxmax(), s_c]), "src": "Manual File"}
+            st.success(f"✓ Using uploaded {inst} history ({len(df)} candles)")
+
+        opf = st.file_uploader("2. Upload / Override Option Chain (CSV / XLSX)", key="oc_upload")
+        if opf:
+            odf = pd.read_excel(opf) if opf.name.lower().endswith(('.xlsx', '.xls')) else pd.read_csv(opf)
+            odf.columns = [str(x).strip().lower().replace(" ", "_") for x in odf.columns]
+            c_c, p_c, s_c = next((x for x in odf.columns if 'ce' in x and 'oi' in x), None), next((x for x in odf.columns if 'pe' in x and 'oi' in x), None), next((x for x in odf.columns if 'strike' in x), None)
+            if c_c and p_c and s_c:
+                for x in [c_c, p_c, s_c]: odf[x] = pd.to_numeric(odf[x].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                pcr = round(odf[p_c].sum() / odf[c_c].sum(), 2) if odf[c_c].sum() > 0 else 1.0
+                oc = {"pcr": pcr, "s": float(odf.loc[odf[p_c].idxmax(), s_c]), "r": float(odf.loc[odf[c_c].idxmax(), s_c]), "src": "Manual File"}
+                st.success(f"✓ Using uploaded Option Chain (PCR: {pcr})")
 
 if mode == "⚡ Live Stream" and df is None:
     try:
@@ -176,14 +179,14 @@ if df is not None and len(df) > 5:
     else: be_s += 1; be_reasons.append("EMA 9 < EMA 21 (Bearish)")
     if p >= curr['ema50']: b_s += 1; b_reasons.append("Price Above EMA 50 (Uptrend)")
     else: be_s += 1; be_reasons.append("Price Below EMA 50 (Downtrend)")
-    if 52 <= rsi <= 72: b_s += 1; b_reasons.append(f"RSI ({rsi:.1f}) Bullish Momentum")
-    elif 28 <= rsi <= 48: be_s += 1; be_reasons.append(f"RSI ({rsi:.1f}) Bearish Breakdown")
+    if 52 <= rsi <= 72: b_s += 1; b_reasons.append(f"RSI ({rsi:.1f}) Bullish")
+    elif 28 <= rsi <= 48: be_s += 1; be_reasons.append(f"RSI ({rsi:.1f}) Bearish")
     if curr['close'] > prev['high']: b_s += 1; b_reasons.append("Candle closed above previous high")
     elif curr['close'] < prev['low']: be_s += 1; be_reasons.append("Candle closed below previous low")
     if oc:
         stg = oc.get('src', 'NSE')
-        if oc['pcr'] >= 1.05 and p >= sup: b_s += 1; b_reasons.append(f"{stg} PCR {oc['pcr']} + Put Support ({sup:.0f})")
-        elif oc['pcr'] <= 0.88 and p <= res: be_s += 1; be_reasons.append(f"{stg} PCR {oc['pcr']} + Call Wall ({res:.0f})")
+        if oc['pcr'] >= 1.05 and p >= sup: b_s += 1; b_reasons.append(f"{stg} PCR {oc['pcr']} Bullish")
+        elif oc['pcr'] <= 0.88 and p <= res: be_s += 1; be_reasons.append(f"{stg} PCR {oc['pcr']} Bearish")
         else: b_reasons.append(f"{stg} PCR {oc['pcr']} Neutral"); be_reasons.append(f"{stg} PCR {oc['pcr']} Neutral")
     else:
         if p > piv: b_s += 1; b_reasons.append("Above Central Pivot")
