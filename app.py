@@ -1,6 +1,12 @@
-import streamlit as st, pandas as pd, numpy as np, plotly.graph_objects as go, yfinance as yf, feedparser, requests
-from datetime import datetime
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import yfinance as yf
+import feedparser
+import requests
+from datetime import datetime
 
 st.set_page_config(page_title="TradeLense AI", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
@@ -10,7 +16,7 @@ st.markdown("""
     header[data-testid="stHeader"] { visibility: hidden !important; height: 0 !important; }
     html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif !important; background: #07090e; color: #f1f5f9 !important; }
     .block-container { padding-top: 1.8rem !important; padding-bottom: 2.5rem !important; padding-left: 0.6rem !important; padding-right: 0.6rem !important; }
-    .banner { background: linear-gradient(135deg, #0f172a, #1e293b); border: 1px solid #334155; border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+    .banner { background: linear-gradient(135deg, #0f172a, #1e293b); border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
     .news-card { background: #0d121c; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
     .card-ce { background: #062b20; border-left: 5px solid #10b981; border-radius: 10px; padding: 12px; margin-bottom: 10px; }
     .card-pe { background: #2d0c13; border-left: 5px solid #f43f5e; border-radius: 10px; padding: 12px; margin-bottom: 10px; }
@@ -36,10 +42,13 @@ def get_live_indices():
         try:
             h = yf.Ticker(sym).history(period="5d")
             if len(h) >= 2:
-                ltp, prev_c = float(h['Close'].iloc[-1]), float(h['Close'].iloc[-2])
+                ltp = float(h['Close'].iloc[-1])
+                prev_c = float(h['Close'].iloc[-2])
                 res[name] = {"ltp": ltp, "pct": ((ltp - prev_c) / prev_c) * 100}
-            else: res[name] = {"ltp": 0.0, "pct": 0.0}
-        except: res[name] = {"ltp": 0.0, "pct": 0.0}
+            else:
+                res[name] = {"ltp": 0.0, "pct": 0.0}
+        except:
+            res[name] = {"ltp": 0.0, "pct": 0.0}
     return res
 
 live_idx = get_live_indices()
@@ -71,29 +80,38 @@ if mode == "⚡ Live Stream":
 @st.cache_data(ttl=180)
 def get_macro():
     d = {}
-    for k, s in [("S&P 500","^GSPC"), ("Nasdaq","^IXIC"), ("Crude","CL=F"), ("VIX","^INDIAVIX")]:
+    for k, s in [("S&P 500", "^GSPC"), ("Nasdaq", "^IXIC"), ("Crude", "CL=F"), ("VIX", "^INDIAVIX")]:
         try:
             r = yf.download(s, period="2d", interval="1d", progress=False)['Close'].dropna()
-            if isinstance(r, pd.DataFrame): r = r.iloc[:, 0]
+            if isinstance(r, pd.DataFrame):
+                r = r.iloc[:, 0]
             pct = float(((r.iloc[-1] - r.iloc[-2]) / r.iloc[-2]) * 100) if len(r) >= 2 else 0.0
             d[k] = {"val": float(r.iloc[-1]), "pct": pct}
-        except: d[k] = {"val": 0.0, "pct": 0.0}
+        except:
+            d[k] = {"val": 0.0, "pct": 0.0}
     return d
 
 @st.cache_data(ttl=300)
 def get_news_articles():
     f = feedparser.parse("https://news.google.com/rss/search?q=Nifty+Indian+stock+market&hl=en-IN&gl=IN&ceid=IN:en")
-    items, bull_w, bear_w, score = [], ['rally','gain','surge','rate cut','record','high','jump'], ['fall','plunge','slump','inflation','war','drop'], 0
+    items = []
+    bull_w = ['rally', 'gain', 'surge', 'rate cut', 'record', 'high', 'jump']
+    bear_w = ['fall', 'plunge', 'slump', 'inflation', 'war', 'drop']
+    score = 0
     for e in f.entries[:3]:
-        t, src = e.title, (e.source.title if 'source' in e and 'title' in e.source else "FINANCE")
+        t = e.title
+        src = e.source.title if 'source' in e and 'title' in e.source else "FINANCE"
         is_p = any(w in t.lower() for w in bull_w)
         is_n = any(w in t.lower() for w in bear_w)
         if is_p: score += 1
         if is_n: score -= 1
         items.append({"title": t, "source": src, "tag": "🟢 Bullish" if is_p else ("🔴 Bearish" if is_n else "⚪ Neutral")})
-    return ("Bullish (+)" if score > 0 else ("Bearish (-)" if score < 0 else "Neutral")), items
+    sent_label = "Bullish (+)" if score > 0 else ("Bearish (-)" if score < 0 else "Neutral")
+    return sent_label, items
 
-macro, (news_sent, news_items) = get_macro(), get_news_articles()
+macro = get_macro()
+news_sent, news_items = get_news_articles()
+
 st.markdown(f"""
 <div class="tile" style="margin-bottom:8px;">
     <div style="display:flex; justify-content:space-between;"><span class="lbl">🌐 GLOBAL MACRO</span><span class="lbl ca">NEWS: {news_sent}</span></div>
@@ -109,7 +127,8 @@ st.markdown(f"""
 with st.expander("📰 Live Breaking Market Headlines", expanded=False):
     for itm in news_items:
         st.markdown(f"""<div class="news-card"><div style="display:flex; justify-content:space-between;"><span style="font-size:0.68rem; font-weight:700; color:#38bdf8;">{itm['source']}</span><span style="font-size:0.68rem; font-weight:700;">{itm['tag']}</span></div><div style="font-size:0.8rem; font-weight:600; color:#e2e8f0; margin-top:2px;">{itm['title']}</div></div>""", unsafe_allow_html=True)
-        @st.cache_data(ttl=180)
+
+@st.cache_data(ttl=180)
 def fetch_nse_option_chain(symbol):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36', 'Accept-Language': 'en-US,en;q=0.9'}
     try:
@@ -117,18 +136,27 @@ def fetch_nse_option_chain(symbol):
         s.get("https://www.nseindia.com", headers=headers, timeout=5)
         resp = s.get(f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}", headers=headers, timeout=5)
         if resp.status_code == 200:
-            recs = resp.json().get('filtered', {}).get('data', []) or resp.json().get('records', {}).get('data', [])
-            tot_ce, tot_pe, max_ce, max_pe, res_s, sup_s = 0, 0, 0, 0, 0, 0
+            data = resp.json()
+            recs = data.get('filtered', {}).get('data', []) or data.get('records', {}).get('data', [])
+            tot_ce, tot_pe = 0, 0
+            max_ce, max_pe = 0, 0
+            res_s, sup_s = 0, 0
             for r in recs:
                 stk = r.get('strikePrice', 0)
                 if 'CE' in r:
-                    ce_oi = r['CE'].get('openInterest', 0); tot_ce += ce_oi
-                    if ce_oi > max_ce: max_ce, res_s = ce_oi, stk
+                    ce_oi = r['CE'].get('openInterest', 0)
+                    tot_ce += ce_oi
+                    if ce_oi > max_ce:
+                        max_ce, res_s = ce_oi, stk
                 if 'PE' in r:
-                    pe_oi = r['PE'].get('openInterest', 0); tot_pe += pe_oi
-                    if pe_oi > max_pe: max_pe, sup_s = pe_oi, stk
-            return {"pcr": round(tot_pe / tot_ce, 2) if tot_ce > 0 else 1.0, "s": float(sup_s), "r": float(res_s), "src": "NSE Live"}
-    except: pass
+                    pe_oi = r['PE'].get('openInterest', 0)
+                    tot_pe += pe_oi
+                    if pe_oi > max_pe:
+                        max_pe, sup_s = pe_oi, stk
+            pcr = round(tot_pe / tot_ce, 2) if tot_ce > 0 else 1.0
+            return {"pcr": pcr, "s": float(sup_s), "r": float(res_s), "src": "NSE Live"}
+    except:
+        pass
     return None
 
 oc = fetch_nse_option_chain(nse_sym) if mode == "⚡ Live Stream" else None
@@ -145,27 +173,30 @@ with st.expander("📂 Option Chain & Data Uploader (Optional)", expanded=(mode 
             df = df.dropna(subset=['time']).sort_values('time').reset_index(drop=True)
     opf = st.file_uploader("2. Override Option Chain (CSV / XLSX)", key="o")
     if opf:
-        odf = pd.read_excel(opf) if opf.name.lower().endswith(('.xlsx','.xls')) else pd.read_csv(opf)
+        odf = pd.read_excel(opf) if opf.name.lower().endswith(('.xlsx', '.xls')) else pd.read_csv(opf)
         odf.columns = [str(x).strip().lower().replace(" ", "_") for x in odf.columns]
         c_c = next((x for x in odf.columns if 'ce' in x and 'oi' in x), None)
         p_c = next((x for x in odf.columns if 'pe' in x and 'oi' in x), None)
         s_c = next((x for x in odf.columns if 'strike' in x), None)
         if c_c and p_c and s_c:
-            for x in [c_c, p_c, s_c]: odf[x] = pd.to_numeric(odf[x].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            for x in [c_c, p_c, s_c]:
+                odf[x] = pd.to_numeric(odf[x].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             pcr = round(odf[p_c].sum() / odf[c_c].sum(), 2) if odf[c_c].sum() > 0 else 1.0
             oc = {"pcr": pcr, "s": float(odf.loc[odf[p_c].idxmax(), s_c]), "r": float(odf.loc[odf[c_c].idxmax(), s_c]), "src": "Manual File"}
 
 if mode == "⚡ Live Stream" and df is None:
     try:
         raw = yf.download(sym, period="5d", interval="5m", progress=False)
-        if len(raw) < 10: raw = yf.download(sym, period="1mo", interval="1d", progress=False)
+        if len(raw) < 10:
+            raw = yf.download(sym, period="1mo", interval="1d", progress=False)
         if len(raw) > 5:
             raw.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in raw.columns]
             raw = raw.reset_index()
             t_col = next((x for x in raw.columns if 'time' in x or 'date' in x), raw.columns[0])
             raw['time'] = pd.to_datetime(raw[t_col])
             df = raw.sort_values('time').reset_index(drop=True)
-    except: pass
+    except:
+        pass
 
 if df is not None and len(df) > 5:
     for k in ['open', 'high', 'low', 'close']:
@@ -176,10 +207,12 @@ if df is not None and len(df) > 5:
     df['ema50'] = df['close'].ewm(span=50, adjust=False).mean()
     chg = df['close'].diff()
     df['rsi'] = (100 - (100 / (1 + (chg.clip(lower=0).rolling(14).mean() / (-chg.clip(upper=0)).rolling(14).mean().replace(0, np.nan))))).fillna(50)
-    tr = pd.concat([df['high']-df['low'], (df['high']-df['close'].shift()).abs(), (df['low']-df['close'].shift()).abs()], axis=1).max(axis=1)
+    tr = pd.concat([df['high'] - df['low'], (df['high'] - df['close'].shift()).abs(), (df['low'] - df['close'].shift()).abs()], axis=1).max(axis=1)
     df['atr'] = tr.rolling(14).mean().bfill()
     curr, prev = df.iloc[-1], df.iloc[-2]
-    p, atr, rsi = curr['close'], curr['atr'] if pd.notna(curr['atr']) and curr['atr'] > 0 else curr['close'] * 0.005, curr['rsi']
+    p = curr['close']
+    atr = curr['atr'] if pd.notna(curr['atr']) and curr['atr'] > 0 else curr['close'] * 0.005
+    rsi = curr['rsi']
     prev_h, prev_l = max(prev['high'], p + (0.5 * atr)), min(prev['low'], p - (0.5 * atr))
     piv = (prev_h + prev_l + curr['close']) / 3
     sup = oc['s'] if oc and oc['s'] < p else round(min((2 * piv) - prev_h, p - (0.8 * atr)), 1)
@@ -187,22 +220,52 @@ if df is not None and len(df) > 5:
     strike = int(round(p / step_k) * step_k)
 
     b_s, be_s, b_reasons, be_reasons = 0, 0, [], []
-    if curr['ema9'] > curr['ema21']: b_s += 1; b_reasons.append("EMA 9 > EMA 21 (Bullish)")
-    else: be_s += 1; be_reasons.append("EMA 9 < EMA 21 (Bearish)")
-    if p >= curr['ema50']: b_s += 1; b_reasons.append("Above EMA 50 (Uptrend)")
-    else: be_s += 1; be_reasons.append("Below EMA 50 (Downtrend)")
-    if 52 <= rsi <= 72: b_s += 1; b_reasons.append(f"RSI ({rsi:.1f}) Momentum")
-    elif 28 <= rsi <= 48: be_s += 1; be_reasons.append(f"RSI ({rsi:.1f}) Breakdown")
-    if curr['close'] > prev['high']: b_s += 1; b_reasons.append("Higher High Candle")
-    elif curr['close'] < prev['low']: be_s += 1; be_reasons.append("Lower Low Candle")
-    if oc:
-        if oc['pcr'] >= 1.05 and p >= sup: b_s += 1; b_reasons.append(f"{oc.get('src','Live')} PCR {oc['pcr']} + Put Support ({sup:.0f})")
-        elif oc['pcr'] <= 0.88 and p <= res: be_s += 1; be_reasons.append(f"{oc.get('src','Live')} PCR {oc['pcr']} + Call Wall ({res:.0f})")
+    if curr['ema9'] > curr['ema21']:
+        b_s += 1
+        b_reasons.append("EMA 9 > EMA 21 (Bullish)")
     else:
-        if p > piv: b_s += 1; b_reasons.append("Price Above Central Pivot")
-        else: be_s += 1; be_reasons.append("Price Below Central Pivot")
+        be_s += 1
+        be_reasons.append("EMA 9 < EMA 21 (Bearish)")
 
-    def stars(n): return "★" * n + "☆" * (5 - n)
+    if p >= curr['ema50']:
+        b_s += 1
+        b_reasons.append("Above EMA 50 (Uptrend)")
+    else:
+        be_s += 1
+        be_reasons.append("Below EMA 50 (Downtrend)")
+
+    if 52 <= rsi <= 72:
+        b_s += 1
+        b_reasons.append(f"RSI ({rsi:.1f}) Momentum")
+    elif 28 <= rsi <= 48:
+        be_s += 1
+        be_reasons.append(f"RSI ({rsi:.1f}) Breakdown")
+
+    if curr['close'] > prev['high']:
+        b_s += 1
+        b_reasons.append("Higher High Candle")
+    elif curr['close'] < prev['low']:
+        be_s += 1
+        be_reasons.append("Lower Low Candle")
+
+    if oc:
+        if oc['pcr'] >= 1.05 and p >= sup:
+            b_s += 1
+            b_reasons.append(f"{oc.get('src','Live')} PCR {oc['pcr']} + Put Support ({sup:.0f})")
+        elif oc['pcr'] <= 0.88 and p <= res:
+            be_s += 1
+            be_reasons.append(f"{oc.get('src','Live')} PCR {oc['pcr']} + Call Wall ({res:.0f})")
+    else:
+        if p > piv:
+            b_s += 1
+            b_reasons.append("Price Above Central Pivot")
+        else:
+            be_s += 1
+            be_reasons.append("Price Below Central Pivot")
+
+    def stars(n):
+        return "★" * n + "☆" * (5 - n)
+
     is_ce, is_pe = b_s >= 3, (be_s >= 3 and b_s < 3)
 
     st.markdown(f"""
@@ -221,7 +284,8 @@ if df is not None and len(df) > 5:
         best_sc = max(b_s, be_s)
         st.markdown(f"""<div class="card-no"><div style="display:flex; justify-content:space-between;"><b style="color:#fbbf24;">⛔ NO TRADE ZONE</b><span class="ca">{stars(best_sc)} ({best_sc}/5)</span></div><p style="margin:4px 0 0 0; font-size:0.82rem; color:#cbd5e1;">Indicators scored only {best_sc}/5 stars. Rangebound between {sup:.0f} and {res:.0f}. Capital protection active.</p></div>""", unsafe_allow_html=True)
     elif is_ce:
-        sl = round(max(sup, p - (1.2 * atr)), 1); rk = round(max(p - sl, atr * 0.8), 1)
+        sl = round(max(sup, p - (1.2 * atr)), 1)
+        rk = round(max(p - sl, atr * 0.8), 1)
         st.markdown(f"""
         <div class="card-ce">
             <div style="display:flex; justify-content:space-between;"><b class="cg">🟢 BUY {strike} CE</b><span class="ca">{stars(b_s)} ({b_s}/5)</span></div>
@@ -231,7 +295,8 @@ if df is not None and len(df) > 5:
         </div>
         """, unsafe_allow_html=True)
     elif is_pe:
-        sl = round(min(res, p + (1.2 * atr)), 1); rk = round(max(sl - p, atr * 0.8), 1)
+        sl = round(min(res, p + (1.2 * atr)), 1)
+        rk = round(max(sl - p, atr * 0.8), 1)
         st.markdown(f"""
         <div class="card-pe">
             <div style="display:flex; justify-content:space-between;"><b class="cr">🔴 BUY {strike} PE</b><span class="ca">{stars(be_s)} ({be_s}/5)</span></div>
@@ -256,4 +321,4 @@ if df is not None and len(df) > 5:
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
     st.info("Tap '🔄 Sync Live Feed' above to pull live market data.")
-            
+    
