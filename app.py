@@ -1,119 +1,33 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
+import streamlit as st, pandas as pd, numpy as np, plotly.graph_objects as go, yfinance as yf, feedparser, requests
 from plotly.subplots import make_subplots
-import yfinance as yf
-import feedparser
-import requests
 from datetime import datetime
 
 st.set_page_config(page_title="TradeLense AI", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
     header[data-testid="stHeader"] { visibility: hidden !important; height: 0 !important; }
-    html, body, [class*="css"], .stMarkdown {
-        font-family: 'Plus Jakarta Sans', sans-serif !important;
-        background-color: #07090e;
-        color: #f8fafc !important;
-    }
-    .block-container {
-        padding-top: 1.8rem !important;
-        padding-bottom: 2.5rem !important;
-        padding-left: 0.6rem !important;
-        padding-right: 0.6rem !important;
-    }
-    .banner {
-        background: linear-gradient(135deg, #0f172a, #1e293b);
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 12px 14px;
-        margin-bottom: 10px;
-    }
-    .news-card {
-        background: #0d121c;
-        border: 1px solid #1e293b;
-        border-radius: 8px;
-        padding: 8px 10px;
-        margin-bottom: 6px;
-    }
-    .card-ce {
-        background: #062b20;
-        border-left: 5px solid #10b981;
-        border-radius: 10px;
-        padding: 14px;
-        margin-bottom: 10px;
-        border-top: 1px solid #10b98144;
-    }
-    .card-pe {
-        background: #2d0c13;
-        border-left: 5px solid #f43f5e;
-        border-radius: 10px;
-        padding: 14px;
-        margin-bottom: 10px;
-        border-top: 1px solid #f43f5e44;
-    }
-    .card-no {
-        background: #241703;
-        border-left: 5px solid #f59e0b;
-        border-radius: 10px;
-        padding: 14px;
-        margin-bottom: 10px;
-    }
+    html, body, [class*="css"], .stMarkdown { font-family: 'Plus Jakarta Sans', sans-serif !important; background: #07090e; color: #ffffff !important; }
+    .block-container { padding: 1.8rem 0.6rem 2.5rem 0.6rem !important; }
+    .banner { background: linear-gradient(135deg, #0f172a, #1e293b); border: 1px solid #334155; border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+    .news-card { background: #0d121c; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+    .card-ce { background: #062b20; border-left: 5px solid #10b981; border-radius: 10px; padding: 14px; margin-bottom: 10px; border-top: 1px solid #10b98144; }
+    .card-pe { background: #2d0c13; border-left: 5px solid #f43f5e; border-radius: 10px; padding: 14px; margin-bottom: 10px; border-top: 1px solid #f43f5e44; }
+    .card-no { background: #241703; border-left: 5px solid #f59e0b; border-radius: 10px; padding: 14px; margin-bottom: 10px; border-top: 1px solid #f59e0b44; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
     .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 6px; }
-    .tile {
-        background: #090e17;
-        border-radius: 8px;
-        padding: 8px 10px;
-        border: 1px solid #1e293b;
-    }
-    .lbl {
-        font-size: 0.65rem;
-        font-weight: 700;
-        color: #94a3b8 !important;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .val {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 1.05rem;
-        font-weight: 700;
-    }
-    .cg { color: #10b981 !important; }
-    .cr { color: #f43f5e !important; }
-    .cb { color: #38bdf8 !important; }
-    .ca { color: #fbbf24 !important; }
-    .row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 6px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-        font-size: 0.84rem;
-        font-family: 'JetBrains Mono', monospace;
-    }
-    .row span {
-        color: #f1f5f9 !important;
-        font-weight: 600 !important;
-    }
-    .reasons-box {
-        margin-top: 10px;
-        padding-top: 8px;
-        border-top: 1px solid rgba(255, 255, 255, 0.15);
-    }
-    .reasons-box ul {
-        margin: 4px 0 0 16px;
-        padding: 0;
-        font-size: 0.82rem;
-        color: #ffffff !important;
-        font-weight: 600;
-        line-height: 1.45;
-    }
+    .tile { background: #090e17; border-radius: 8px; padding: 8px 10px; border: 1px solid #1e293b; }
+    .lbl { font-size: 0.65rem; font-weight: 700; color: #94a3b8 !important; text-transform: uppercase; letter-spacing: 0.5px; }
+    .val { font-family: 'JetBrains Mono', monospace; font-size: 1.05rem; font-weight: 700; }
+    .cg { color: #10b981 !important; } .cr { color: #f43f5e !important; } .cb { color: #38bdf8 !important; } .ca { color: #fbbf24 !important; }
+    .row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.15); font-size: 0.84rem; font-family: 'JetBrains Mono', monospace; }
+    .row span { color: #ffffff !important; font-weight: 700 !important; }
+    .row b { font-weight: 800 !important; }
+    .reasons-box { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.2); }
+    .reasons-box ul { margin: 4px 0 0 16px; padding: 0; font-size: 0.82rem; color: #ffffff !important; font-weight: 700; line-height: 1.45; }
+    .reasons-box li { color: #ffffff !important; margin-bottom: 2px; }
 </style>
-
 <div class="banner">
     <div style="font-size:1.35rem; font-weight:800; color:#fff;">⚡ TradeLense AI Terminal</div>
     <div style="font-size:0.75rem; color:#94a3b8; font-weight:600;">Automated Live NSE Confluence & Execution Matrix</div>
@@ -123,50 +37,28 @@ st.markdown("""
 @st.cache_data(ttl=60)
 def get_live_indices():
     res = {}
-    for name, sym in [("NIFTY 50", "^NSEI"), ("BANK NIFTY", "^NSEBANK")]:
+    for name, s in [("NIFTY 50", "^NSEI"), ("BANK NIFTY", "^NSEBANK")]:
         try:
-            h = yf.Ticker(sym).history(period="5d")
+            h = yf.Ticker(s).history(period="5d")
             if len(h) >= 2:
-                ltp = float(h['Close'].iloc[-1])
-                prev_c = float(h['Close'].iloc[-2])
+                ltp, prev_c = float(h['Close'].iloc[-1]), float(h['Close'].iloc[-2])
                 res[name] = {"ltp": ltp, "pct": ((ltp - prev_c) / prev_c) * 100}
-            else:
-                res[name] = {"ltp": 0.0, "pct": 0.0}
-        except:
-            res[name] = {"ltp": 0.0, "pct": 0.0}
+            else: res[name] = {"ltp": 0.0, "pct": 0.0}
+        except: res[name] = {"ltp": 0.0, "pct": 0.0}
     return res
 
 live_idx = get_live_indices()
-
 st.markdown(f"""
 <div class="grid-2" style="margin-bottom:10px;">
-    <div class="tile">
-        <div style="display:flex; justify-content:space-between;">
-            <span class="lbl">NIFTY 50 (LIVE)</span>
-            <span class="lbl {'cg' if live_idx['NIFTY 50']['pct']>=0 else 'cr'}">{live_idx['NIFTY 50']['pct']:+.2f}%</span>
-        </div>
-        <div class="val cb" style="font-size:1.15rem; margin-top:2px;">{live_idx['NIFTY 50']['ltp']:,.2f}</div>
-    </div>
-    <div class="tile">
-        <div style="display:flex; justify-content:space-between;">
-            <span class="lbl">BANK NIFTY (LIVE)</span>
-            <span class="lbl {'cg' if live_idx['BANK NIFTY']['pct']>=0 else 'cr'}">{live_idx['BANK NIFTY']['pct']:+.2f}%</span>
-        </div>
-        <div class="val cb" style="font-size:1.15rem; margin-top:2px;">{live_idx['BANK NIFTY']['ltp']:,.2f}</div>
-    </div>
+    <div class="tile"><div style="display:flex; justify-content:space-between;"><span class="lbl">NIFTY 50</span><span class="lbl {'cg' if live_idx['NIFTY 50']['pct']>=0 else 'cr'}">{live_idx['NIFTY 50']['pct']:+.2f}%</span></div><div class="val cb">{live_idx['NIFTY 50']['ltp']:,.2f}</div></div>
+    <div class="tile"><div style="display:flex; justify-content:space-between;"><span class="lbl">BANK NIFTY</span><span class="lbl {'cg' if live_idx['BANK NIFTY']['pct']>=0 else 'cr'}">{live_idx['BANK NIFTY']['pct']:+.2f}%</span></div><div class="val cb">{live_idx['BANK NIFTY']['ltp']:,.2f}</div></div>
 </div>
 """, unsafe_allow_html=True)
 
 c_top1, c_top2 = st.columns([1.2, 1])
-with c_top1:
-    inst = st.radio("Target Index", ["NIFTY 50", "BANK NIFTY"], horizontal=True)
-with c_top2:
-    mode = st.radio("Mode", ["⚡ Live Stream", "📁 Upload CSV"], horizontal=True)
-
-sym = "^NSEI" if inst == "NIFTY 50" else "^NSEBANK"
-step_k = 50 if inst == "NIFTY 50" else 100
-lot_sz = 50 if inst == "NIFTY 50" else 15
-nse_sym = "NIFTY" if inst == "NIFTY 50" else "BANKNIFTY"
+inst = c_top1.radio("Target Index", ["NIFTY 50", "BANK NIFTY"], horizontal=True)
+mode = c_top2.radio("Mode", ["⚡ Live Stream", "📁 Upload CSV"], horizontal=True)
+sym, step_k, lot_sz, nse_sym = ("^NSEI", 50, 50, "NIFTY") if inst == "NIFTY 50" else ("^NSEBANK", 100, 15, "BANKNIFTY")
 
 if mode == "⚡ Live Stream":
     c_btn, c_time = st.columns([1.2, 1])
@@ -181,31 +73,25 @@ def get_macro():
     for k, s in [("S&P 500", "^GSPC"), ("Nasdaq", "^IXIC"), ("Crude", "CL=F"), ("VIX", "^INDIAVIX")]:
         try:
             r = yf.download(s, period="2d", interval="1d", progress=False)['Close'].dropna()
-            if isinstance(r, pd.DataFrame):
-                r = r.iloc[:, 0]
-            pct = float(((r.iloc[-1] - r.iloc[-2]) / r.iloc[-2]) * 100) if len(r) >= 2 else 0.0
-            d[k] = {"val": float(r.iloc[-1]), "pct": pct}
-        except:
-            d[k] = {"val": 0.0, "pct": 0.0}
+            if isinstance(r, pd.DataFrame): r = r.iloc[:, 0]
+            d[k] = {"val": float(r.iloc[-1]), "pct": float(((r.iloc[-1] - r.iloc[-2]) / r.iloc[-2]) * 100) if len(r) >= 2 else 0.0}
+        except: d[k] = {"val": 0.0, "pct": 0.0}
     return d
 
 @st.cache_data(ttl=300)
 def get_news_articles():
     f = feedparser.parse("https://news.google.com/rss/search?q=Nifty+Indian+stock+market&hl=en-IN&gl=IN&ceid=IN:en")
-    items, bull_w, bear_w, score = [], ['rally', 'gain', 'surge', 'rate cut', 'record', 'high', 'jump'], ['fall', 'plunge', 'slump', 'inflation', 'war', 'drop'], 0
+    items, bull_w, bear_w, score = [], ['rally','gain','surge','rate cut','record','high','jump'], ['fall','plunge','slump','inflation','war','drop'], 0
     for e in f.entries[:3]:
         t = e.title
         src = e.source.title if 'source' in e and 'title' in e.source else "FINANCE"
-        is_p = any(w in t.lower() for w in bull_w)
-        is_n = any(w in t.lower() for w in bear_w)
+        is_p, is_n = any(w in t.lower() for w in bull_w), any(w in t.lower() for w in bear_w)
         if is_p: score += 1
         if is_n: score -= 1
         items.append({"title": t, "source": src, "tag": "🟢 Bullish" if is_p else ("🔴 Bearish" if is_n else "⚪ Neutral")})
     return ("Bullish (+)" if score > 0 else ("Bearish (-)" if score < 0 else "Neutral")), items
 
-macro = get_macro()
-news_sent, news_items = get_news_articles()
-
+macro, (news_sent, news_items) = get_macro(), get_news_articles()
 st.markdown(f"""
 <div class="tile" style="margin-bottom:8px;">
     <div style="display:flex; justify-content:space-between;"><span class="lbl">🌐 GLOBAL MACRO</span><span class="lbl ca">NEWS: {news_sent}</span></div>
@@ -221,39 +107,31 @@ st.markdown(f"""
 with st.expander("📰 Live Breaking Market Headlines", expanded=False):
     for itm in news_items:
         st.markdown(f"""<div class="news-card"><div style="display:flex; justify-content:space-between;"><span style="font-size:0.68rem; font-weight:700; color:#38bdf8;">{itm['source']}</span><span style="font-size:0.68rem; font-weight:700;">{itm['tag']}</span></div><div style="font-size:0.8rem; font-weight:600; color:#e2e8f0; margin-top:2px;">{itm['title']}</div></div>""", unsafe_allow_html=True)
-        @st.cache_data(ttl=180)
-def fetch_nse_option_chain(symbol):
-    session = requests.Session()
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.nseindia.com/option-chain',
-        'DNT': '1'
-    }
+
+@st.cache_data(ttl=180)
+def fetch_nse_chain(symbol):
     try:
-        session.get("https://www.nseindia.com", headers=headers, timeout=5)
-        resp = session.get(f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}", headers=headers, timeout=5)
+        s = requests.Session()
+        hdrs = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36', 'Referer': 'https://www.nseindia.com/option-chain'}
+        s.get("https://www.nseindia.com", headers=hdrs, timeout=5)
+        resp = s.get(f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}", headers=hdrs, timeout=5)
         if resp.status_code == 200:
-            data = resp.json()
-            recs = data.get('filtered', {}).get('data', []) or data.get('records', {}).get('data', [])
-            tot_ce, tot_pe, max_ce, max_pe, res_s, sup_s = 0, 0, 0, 0, 0, 0
+            recs = resp.json().get('filtered', {}).get('data', []) or resp.json().get('records', {}).get('data', [])
+            t_ce, t_pe, m_ce, m_pe, r_s, s_s = 0, 0, 0, 0, 0, 0
             for r in recs:
                 stk = r.get('strikePrice', 0)
                 if 'CE' in r:
-                    ce_oi = r['CE'].get('openInterest', 0)
-                    tot_ce += ce_oi
-                    if ce_oi > max_ce: max_ce, res_s = ce_oi, stk
+                    c = r['CE'].get('openInterest', 0); t_ce += c
+                    if c > m_ce: m_ce, r_s = c, stk
                 if 'PE' in r:
-                    pe_oi = r['PE'].get('openInterest', 0)
-                    tot_pe += pe_oi
-                    if pe_oi > max_pe: max_pe, sup_s = pe_oi, stk
-            if tot_ce > 0 and sup_s > 0 and res_s > 0:
-                return {"pcr": round(tot_pe / tot_ce, 2), "s": float(sup_s), "r": float(res_s), "src": "NSE Live"}
-    except:
-        pass
+                    p = r['PE'].get('openInterest', 0); t_pe += p
+                    if p > m_pe: m_pe, s_s = p, stk
+            if t_ce > 0 and s_s > 0 and r_s > 0:
+                return {"pcr": round(t_pe / t_ce, 2), "s": float(s_s), "r": float(r_s), "src": "NSE Live"}
+    except: pass
     return None
 
-oc = fetch_nse_option_chain(nse_sym) if mode == "⚡ Live Stream" else None
+oc = fetch_nse_chain(nse_sym) if mode == "⚡ Live Stream" else None
 df = None
 
 with st.expander("📂 Option Chain & Data Uploader (Optional)", expanded=(mode == "📁 Upload CSV")):
@@ -269,28 +147,23 @@ with st.expander("📂 Option Chain & Data Uploader (Optional)", expanded=(mode 
     if opf:
         odf = pd.read_excel(opf) if opf.name.lower().endswith(('.xlsx', '.xls')) else pd.read_csv(opf)
         odf.columns = [str(x).strip().lower().replace(" ", "_") for x in odf.columns]
-        c_c = next((x for x in odf.columns if 'ce' in x and 'oi' in x), None)
-        p_c = next((x for x in odf.columns if 'pe' in x and 'oi' in x), None)
-        s_c = next((x for x in odf.columns if 'strike' in x), None)
+        c_c, p_c, s_c = next((x for x in odf.columns if 'ce' in x and 'oi' in x), None), next((x for x in odf.columns if 'pe' in x and 'oi' in x), None), next((x for x in odf.columns if 'strike' in x), None)
         if c_c and p_c and s_c:
-            for x in [c_c, p_c, s_c]:
-                odf[x] = pd.to_numeric(odf[x].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            for x in [c_c, p_c, s_c]: odf[x] = pd.to_numeric(odf[x].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             pcr = round(odf[p_c].sum() / odf[c_c].sum(), 2) if odf[c_c].sum() > 0 else 1.0
             oc = {"pcr": pcr, "s": float(odf.loc[odf[p_c].idxmax(), s_c]), "r": float(odf.loc[odf[c_c].idxmax(), s_c]), "src": "Manual File"}
 
 if mode == "⚡ Live Stream" and df is None:
     try:
         raw = yf.download(sym, period="5d", interval="5m", progress=False)
-        if len(raw) < 10:
-            raw = yf.download(sym, period="1mo", interval="1d", progress=False)
+        if len(raw) < 10: raw = yf.download(sym, period="1mo", interval="1d", progress=False)
         if len(raw) > 5:
             raw.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in raw.columns]
             raw = raw.reset_index()
             t_col = next((x for x in raw.columns if 'time' in x or 'date' in x), raw.columns[0])
             raw['time'] = pd.to_datetime(raw[t_col])
             df = raw.sort_values('time').reset_index(drop=True)
-    except:
-        pass
+    except: pass
 
 if df is not None and len(df) > 5:
     for k in ['open', 'high', 'low', 'close']:
@@ -304,9 +177,7 @@ if df is not None and len(df) > 5:
     tr = pd.concat([df['high'] - df['low'], (df['high'] - df['close'].shift()).abs(), (df['low'] - df['close'].shift()).abs()], axis=1).max(axis=1)
     df['atr'] = tr.rolling(14).mean().bfill()
     curr, prev = df.iloc[-1], df.iloc[-2]
-    p = curr['close']
-    atr = curr['atr'] if pd.notna(curr['atr']) and curr['atr'] > 0 else curr['close'] * 0.005
-    rsi = curr['rsi']
+    p, atr, rsi = curr['close'], curr['atr'] if pd.notna(curr['atr']) and curr['atr'] > 0 else curr['close'] * 0.005, curr['rsi']
     prev_h, prev_l = max(prev['high'], p + (0.5 * atr)), min(prev['low'], p - (0.5 * atr))
     piv = (prev_h + prev_l + curr['close']) / 3
     sup = oc['s'] if oc and oc['s'] < p else round(min((2 * piv) - prev_h, p - (0.8 * atr)), 1)
@@ -314,52 +185,22 @@ if df is not None and len(df) > 5:
     strike = int(round(p / step_k) * step_k)
 
     b_s, be_s, b_reasons, be_reasons = 0, 0, [], []
-    if curr['ema9'] > curr['ema21']:
-        b_s += 1
-        b_reasons.append("EMA 9 > EMA 21 (Bullish Momentum)")
-    else:
-        be_s += 1
-        be_reasons.append("EMA 9 < EMA 21 (Bearish Momentum)")
-
-    if p >= curr['ema50']:
-        b_s += 1
-        b_reasons.append("Price Above EMA 50 (Macro Uptrend)")
-    else:
-        be_s += 1
-        be_reasons.append("Price Below EMA 50 (Macro Downtrend)")
-
-    if 52 <= rsi <= 72:
-        b_s += 1
-        b_reasons.append(f"RSI ({rsi:.1f}) in Bullish Acceleration Zone")
-    elif 28 <= rsi <= 48:
-        be_s += 1
-        be_reasons.append(f"RSI ({rsi:.1f}) in Bearish Breakdown Zone")
-
-    if curr['close'] > prev['high']:
-        b_s += 1
-        b_reasons.append("Candle closed above previous candle high")
-    elif curr['close'] < prev['low']:
-        be_s += 1
-        be_reasons.append("Candle closed below previous candle low")
-
+    if curr['ema9'] > curr['ema21']: b_s += 1; b_reasons.append("EMA 9 > EMA 21 (Bullish Momentum)")
+    else: be_s += 1; be_reasons.append("EMA 9 < EMA 21 (Bearish Momentum)")
+    if p >= curr['ema50']: b_s += 1; b_reasons.append("Price Above EMA 50 (Macro Uptrend)")
+    else: be_s += 1; be_reasons.append("Price Below EMA 50 (Macro Downtrend)")
+    if 52 <= rsi <= 72: b_s += 1; b_reasons.append(f"RSI ({rsi:.1f}) in Bullish Acceleration")
+    elif 28 <= rsi <= 48: be_s += 1; be_reasons.append(f"RSI ({rsi:.1f}) in Bearish Breakdown")
+    if curr['close'] > prev['high']: b_s += 1; b_reasons.append("Candle closed above previous high")
+    elif curr['close'] < prev['low']: be_s += 1; be_reasons.append("Candle closed below previous low")
     if oc:
         src_tag = oc.get('src', 'NSE')
-        if oc['pcr'] >= 1.05 and p >= sup:
-            b_s += 1
-            b_reasons.append(f"{src_tag} PCR {oc['pcr']} Bullish + Holding Put Support ({sup:.0f})")
-        elif oc['pcr'] <= 0.88 and p <= res:
-            be_s += 1
-            be_reasons.append(f"{src_tag} PCR {oc['pcr']} Bearish + Call Wall Resistance ({res:.0f})")
-        else:
-            b_reasons.append(f"{src_tag} PCR {oc['pcr']} Neutral / Rangebound")
-            be_reasons.append(f"{src_tag} PCR {oc['pcr']} Neutral / Rangebound")
+        if oc['pcr'] >= 1.05 and p >= sup: b_s += 1; b_reasons.append(f"{src_tag} PCR {oc['pcr']} Bullish + Put Support ({sup:.0f})")
+        elif oc['pcr'] <= 0.88 and p <= res: be_s += 1; be_reasons.append(f"{src_tag} PCR {oc['pcr']} Bearish + Call Wall ({res:.0f})")
+        else: b_reasons.append(f"{src_tag} PCR {oc['pcr']} Neutral / Rangebound"); be_reasons.append(f"{src_tag} PCR {oc['pcr']} Neutral / Rangebound")
     else:
-        if p > piv:
-            b_s += 1
-            b_reasons.append("Price sustained above Central Pivot")
-        else:
-            be_s += 1
-            be_reasons.append("Price rejected below Central Pivot")
+        if p > piv: b_s += 1; b_reasons.append("Price sustained above Central Pivot")
+        else: be_s += 1; be_reasons.append("Price rejected below Central Pivot")
 
     def stars(n): return "★" * n + "☆" * (5 - n)
     is_ce, is_pe = b_s >= 3, (be_s >= 3 and b_s < 3)
@@ -367,10 +208,7 @@ if df is not None and len(df) > 5:
 
     st.markdown(f"""
     <div class="tile" style="margin-bottom:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span class="lbl">{inst} SPOT LEVEL</span>
-            <span class="lbl">CHAIN: {oc_badge}</span>
-        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center;"><span class="lbl">{inst} SPOT LEVEL</span><span class="lbl">CHAIN: {oc_badge}</span></div>
         <div class="val cb" style="font-size:1.25rem; margin-top:2px;">{p:.2f}</div>
         <div class="grid-2" style="margin-top:4px;">
             <div class="tile"><span class="lbl">SUPPORT (PE WALL)</span><div class="val cg">{sup:.0f}</div></div>
@@ -382,67 +220,25 @@ if df is not None and len(df) > 5:
     st.markdown("#### 🎯 Execution Setups")
     if not is_ce and not is_pe:
         best_sc = max(b_s, be_s)
-        st.markdown(f"""
-        <div class="card-no">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <b style="color:#fbbf24; font-size:1rem;">⛔ NO TRADE ZONE</b>
-                <span class="ca" style="font-family:'JetBrains Mono'; font-weight:700;">{stars(best_sc)} ({best_sc}/5)</span>
-            </div>
-            <p style="margin:4px 0 0 0; font-size:0.84rem; color:#ffffff; font-weight:600;">
-                Indicators scored only {best_sc}/5 stars. Rangebound between {sup:.0f} and {res:.0f}. Capital protection active.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="card-no"><div style="display:flex; justify-content:space-between;"><b style="color:#fbbf24;">⛔ NO TRADE ZONE</b><span class="ca" style="font-family:'JetBrains Mono';">{stars(best_sc)} ({best_sc}/5)</span></div><p style="margin:4px 0 0 0; font-size:0.84rem; color:#ffffff; font-weight:700;">Indicators scored only {best_sc}/5 stars. Rangebound between {sup:.0f} and {res:.0f}. Capital protection active.</p></div>""", unsafe_allow_html=True)
     elif is_ce:
-        sl = round(max(sup, p - (1.2 * atr)), 1)
-        rk = round(max(p - sl, atr * 0.8), 1)
+        sl, rk = round(max(sup, p - (1.2 * atr)), 1), round(max(p - round(max(sup, p - (1.2 * atr)), 1), atr * 0.8), 1)
         st.markdown(f"""
         <div class="card-ce">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <b class="cg" style="font-size:1.05rem;">🟢 BUY {strike} CE</b>
-                <span class="ca" style="font-family:'JetBrains Mono'; font-weight:700;">{stars(b_s)} ({b_s}/5)</span>
-            </div>
-            <div class="grid-2">
-                <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">{p:.1f}</div></div>
-                <div class="tile"><span class="lbl">STOP LOSS</span><div class="val cr">{sl:.1f}</div></div>
-                <div class="tile"><span class="lbl">TARGET 1</span><div class="val cg">{p+rk:.1f}</div></div>
-                <div class="tile"><span class="lbl">TARGET 2 (2R)</span><div class="val cg">{p+(2*rk):.1f}</div></div>
-            </div>
-            <div style="margin-top:8px;">
-                <div class="row"><span>Target 3 (Extension):</span><b class="cg">{p+(3*rk):.1f}</b></div>
-                <div class="row"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk*lot_sz:,.0f} ({rk} pts)</b></div>
-                <div class="row"><span>Est. Gain at T2:</span><b class="cg">+₹{rk*2*lot_sz:,.0f} (+{rk*2:.1f} pts)</b></div>
-            </div>
-            <div class="reasons-box">
-                <span class="lbl" style="color:#ffffff !important;">WHY THIS CALL (CONFIRMING PILLARS):</span>
-                <ul>{''.join(f'<li>{r}</li>' for r in b_reasons)}</ul>
-            </div>
+            <div style="display:flex; justify-content:space-between;"><b class="cg" style="font-size:1.05rem;">🟢 BUY {strike} CE</b><span class="ca" style="font-family:'JetBrains Mono'; font-weight:700;">{stars(b_s)} ({b_s}/5)</span></div>
+            <div class="grid-2"><div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">{p:.1f}</div></div><div class="tile"><span class="lbl">STOP LOSS</span><div class="val cr">{sl:.1f}</div></div><div class="tile"><span class="lbl">TARGET 1</span><div class="val cg">{p+rk:.1f}</div></div><div class="tile"><span class="lbl">TARGET 2 (2R)</span><div class="val cg">{p+(2*rk):.1f}</div></div></div>
+            <div style="margin-top:8px;"><div class="row"><span>Target 3 (Extension):</span><b class="cg">{p+(3*rk):.1f}</b></div><div class="row"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk*lot_sz:,.0f} ({rk} pts)</b></div><div class="row"><span>Est. Gain at T2:</span><b class="cg">+₹{rk*2*lot_sz:,.0f} (+{rk*2:.1f} pts)</b></div></div>
+            <div class="reasons-box"><span class="lbl" style="color:#ffffff !important;">WHY THIS CALL (CONFIRMING PILLARS):</span><ul>{''.join(f'<li>{r}</li>' for r in b_reasons)}</ul></div>
         </div>
         """, unsafe_allow_html=True)
     elif is_pe:
-        sl = round(min(res, p + (1.2 * atr)), 1)
-        rk = round(max(sl - p, atr * 0.8), 1)
+        sl, rk = round(min(res, p + (1.2 * atr)), 1), round(max(round(min(res, p + (1.2 * atr)), 1) - p, atr * 0.8), 1)
         st.markdown(f"""
         <div class="card-pe">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <b class="cr" style="font-size:1.05rem;">🔴 BUY {strike} PE</b>
-                <span class="ca" style="font-family:'JetBrains Mono'; font-weight:700;">{stars(be_s)} ({be_s}/5)</span>
-            </div>
-            <div class="grid-2">
-                <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">{p:.1f}</div></div>
-                <div class="tile"><span class="lbl">STOP LOSS</span><div class="val cr">{sl:.1f}</div></div>
-                <div class="tile"><span class="lbl">TARGET 1</span><div class="val cg">{p-rk:.1f}</div></div>
-                <div class="tile"><span class="lbl">TARGET 2 (2R)</span><div class="val cg">{p-(2*rk):.1f}</div></div>
-            </div>
-            <div style="margin-top:8px;">
-                <div class="row"><span>Target 3 (Extension):</span><b class="cg">{p-(3*rk):.1f}</b></div>
-                <div class="row"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk*lot_sz:,.0f} ({rk} pts)</b></div>
-                <div class="row"><span>Est. Gain at T2:</span><b class="cg">+₹{rk*2*lot_sz:,.0f} (+{rk*2:.1f} pts)</b></div>
-            </div>
-            <div class="reasons-box">
-                <span class="lbl" style="color:#ffffff !important;">WHY THIS CALL (CONFIRMING PILLARS):</span>
-                <ul>{''.join(f'<li>{r}</li>' for r in be_reasons)}</ul>
-            </div>
+            <div style="display:flex; justify-content:space-between;"><b class="cr" style="font-size:1.05rem;">🔴 BUY {strike} PE</b><span class="ca" style="font-family:'JetBrains Mono'; font-weight:700;">{stars(be_s)} ({be_s}/5)</span></div>
+            <div class="grid-2"><div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">{p:.1f}</div></div><div class="tile"><span class="lbl">STOP LOSS</span><div class="val cr">{sl:.1f}</div></div><div class="tile"><span class="lbl">TARGET 1</span><div class="val cg">{p-rk:.1f}</div></div><div class="tile"><span class="lbl">TARGET 2 (2R)</span><div class="val cg">{p-(2*rk):.1f}</div></div></div>
+            <div style="margin-top:8px;"><div class="row"><span>Target 3 (Extension):</span><b class="cg">{p-(3*rk):.1f}</b></div><div class="row"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk*lot_sz:,.0f} ({rk} pts)</b></div><div class="row"><span>Est. Gain at T2:</span><b class="cg">+₹{rk*2*lot_sz:,.0f} (+{rk*2:.1f} pts)</b></div></div>
+            <div class="reasons-box"><span class="lbl" style="color:#ffffff !important;">WHY THIS CALL (CONFIRMING PILLARS):</span><ul>{''.join(f'<li>{r}</li>' for r in be_reasons)}</ul></div>
         </div>
         """, unsafe_allow_html=True)
 
