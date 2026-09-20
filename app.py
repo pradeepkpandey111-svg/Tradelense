@@ -1,6 +1,9 @@
 import streamlit as st, pandas as pd, numpy as np, plotly.graph_objects as go, yfinance as yf, feedparser, requests
 from plotly.subplots import make_subplots
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# Explicit Indian Standard Time (IST = UTC + 5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
 
 st.set_page_config(page_title="TradeLense AI", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 st.markdown("""<style>
@@ -50,10 +53,12 @@ mode = c2.radio("Mode", ["⚡ Live Stream", "📁 Upload CSV"], horizontal=True)
 sym, step_k, lot_sz, nse_sym = ("^NSEI", 50, 50, "NIFTY") if inst == "NIFTY 50" else ("^NSEBANK", 100, 15, "BANKNIFTY")
 
 if mode == "⚡ Live Stream":
-    b1, b2 = st.columns([1.2, 1])
-    if b1.button("🔄 Sync Live Feed", use_container_width=True, type="primary"):
+    b1, b2 = st.columns([1, 1.4])
+    if b1.button("🔄 Sync Live", use_container_width=True, type="primary"):
         st.cache_data.clear(); st.rerun()
-    b2.caption(f"Synced: {datetime.now().strftime('%H:%M:%S')}")
+    # Correct Date & 12-Hour Time in IST
+    ist_now = datetime.now(IST).strftime("%d-%b-%Y | %I:%M:%S %p")
+    b2.markdown(f"<div style='font-size:0.75rem; color:#94a3b8; font-weight:700; margin-top:6px;'>🕒 Synced: <span style='color:#38bdf8;'>{ist_now}</span></div>", unsafe_allow_html=True)
 
 @st.cache_data(ttl=180)
 def get_macro():
@@ -171,14 +176,14 @@ if df is not None and len(df) > 5:
     else: be_s += 1; be_reasons.append("EMA 9 < EMA 21 (Bearish)")
     if p >= curr['ema50']: b_s += 1; b_reasons.append("Price Above EMA 50 (Uptrend)")
     else: be_s += 1; be_reasons.append("Price Below EMA 50 (Downtrend)")
-    if 52 <= rsi <= 72: b_s += 1; b_reasons.append(f"RSI ({rsi:.1f}) Bullish")
-    elif 28 <= rsi <= 48: be_s += 1; be_reasons.append(f"RSI ({rsi:.1f}) Bearish")
+    if 52 <= rsi <= 72: b_s += 1; b_reasons.append(f"RSI ({rsi:.1f}) Bullish Momentum")
+    elif 28 <= rsi <= 48: be_s += 1; be_reasons.append(f"RSI ({rsi:.1f}) Bearish Breakdown")
     if curr['close'] > prev['high']: b_s += 1; b_reasons.append("Candle closed above previous high")
     elif curr['close'] < prev['low']: be_s += 1; be_reasons.append("Candle closed below previous low")
     if oc:
         stg = oc.get('src', 'NSE')
-        if oc['pcr'] >= 1.05 and p >= sup: b_s += 1; b_reasons.append(f"{stg} PCR {oc['pcr']} Bullish")
-        elif oc['pcr'] <= 0.88 and p <= res: be_s += 1; be_reasons.append(f"{stg} PCR {oc['pcr']} Bearish")
+        if oc['pcr'] >= 1.05 and p >= sup: b_s += 1; b_reasons.append(f"{stg} PCR {oc['pcr']} + Put Support ({sup:.0f})")
+        elif oc['pcr'] <= 0.88 and p <= res: be_s += 1; be_reasons.append(f"{stg} PCR {oc['pcr']} + Call Wall ({res:.0f})")
         else: b_reasons.append(f"{stg} PCR {oc['pcr']} Neutral"); be_reasons.append(f"{stg} PCR {oc['pcr']} Neutral")
     else:
         if p > piv: b_s += 1; b_reasons.append("Above Central Pivot")
@@ -200,33 +205,41 @@ if df is not None and len(df) > 5:
         st.markdown(f"""<div class="card-no"><div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ NO TRADE ZONE</b><span class="ca">{stars(best_sc)} ({best_sc}/5)</span></div><p style="margin:4px 0 0 0;font-size:0.84rem;color:#fff;font-weight:700;">Score {best_sc}/5 stars. Market rangebound between {sup:.0f} and {res:.0f}.</p></div>""", unsafe_allow_html=True)
     elif is_ce:
         sl = round(max(sup, p - (1.2 * atr)), 1); rk = round(max(ce_entry - sl, atr * 0.8), 1)
-        st.markdown(f"""<div class="card-ce">
-        <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 BUY {strike} CE</b><span class="ca">{stars(b_s)} ({b_s}/5)</span></div>
-        <div class="g2"><div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Buy Above {ce_entry:.1f}</div></div><div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div></div>
-        <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-            <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT PLAN (TARGETS & RISK)</div>
-            <div class="rw"><span>🎯 Target 1 (T1) — Book 50%:</span><b class="cg">{ce_entry + rk:.1f} (+{rk:.1f} pts)</b></div>
-            <div class="rw"><span>🏁 Target 2 (T2) — Book All:</span><b class="cg">{ce_entry + (2*rk):.1f} (+{2*rk:.1f} pts)</b></div>
-            <div class="rw"><span>🛡️ Trailing SL (After T1 Hit):</span><b class="cb">Move SL to Cost ({ce_entry:.1f})</b></div>
-            <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f}</b></div>
-            <div class="rw"><span>Full Profit at T2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f}</b></div>
-        </div>
-        <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(b_reasons)}</div>
+        st.markdown(f"""
+        <div class="card-ce">
+            <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 BUY {strike} CE</b><span class="ca">{stars(b_s)} ({b_s}/5)</span></div>
+            <div class="g2">
+                <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Buy Above {ce_entry:.1f}</div></div>
+                <div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div>
+            </div>
+            <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
+                <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT PLAN (TARGETS & RISK)</div>
+                <div class="rw"><span>🎯 Target 1 (T1) — Book 50%:</span><b class="cg">{ce_entry + rk:.1f} (+{rk:.1f} pts)</b></div>
+                <div class="rw"><span>🏁 Target 2 (T2) — Book All:</span><b class="cg">{ce_entry + (2*rk):.1f} (+{2*rk:.1f} pts)</b></div>
+                <div class="rw"><span>🛡️ Trailing SL (After T1 Hit):</span><b class="cb">Move SL to Cost ({ce_entry:.1f})</b></div>
+                <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f}</b></div>
+                <div class="rw"><span>Full Profit at T2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f}</b></div>
+            </div>
+            <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(b_reasons)}</div>
         </div>""", unsafe_allow_html=True)
     elif is_pe:
         sl = round(min(res, p + (1.2 * atr)), 1); rk = round(max(sl - pe_entry, atr * 0.8), 1)
-        st.markdown(f"""<div class="card-pe">
-        <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 BUY {strike} PE</b><span class="ca">{stars(be_s)} ({be_s}/5)</span></div>
-        <div class="g2"><div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Sell Below {pe_entry:.1f}</div></div><div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div></div>
-        <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-            <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT PLAN (TARGETS & RISK)</div>
-            <div class="rw"><span>🎯 Target 1 (T1) — Book 50%:</span><b class="cg">{pe_entry - rk:.1f} (+{rk:.1f} pts)</b></div>
-            <div class="rw"><span>🏁 Target 2 (T2) — Book All:</span><b class="cg">{pe_entry - (2*rk):.1f} (+{2*rk:.1f} pts)</b></div>
-            <div class="rw"><span>🛡️ Trailing SL (After T1 Hit):</span><b class="cb">Move SL to Cost ({pe_entry:.1f})</b></div>
-            <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f}</b></div>
-            <div class="rw"><span>Full Profit at T2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f}</b></div>
-        </div>
-        <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(be_reasons)}</div>
+        st.markdown(f"""
+        <div class="card-pe">
+            <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 BUY {strike} PE</b><span class="ca">{stars(be_s)} ({be_s}/5)</span></div>
+            <div class="g2">
+                <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Sell Below {pe_entry:.1f}</div></div>
+                <div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div>
+            </div>
+            <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
+                <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT PLAN (TARGETS & RISK)</div>
+                <div class="rw"><span>🎯 Target 1 (T1) — Book 50%:</span><b class="cg">{pe_entry - rk:.1f} (+{rk:.1f} pts)</b></div>
+                <div class="rw"><span>🏁 Target 2 (T2) — Book All:</span><b class="cg">{pe_entry - (2*rk):.1f} (+{2*rk:.1f} pts)</b></div>
+                <div class="rw"><span>🛡️ Trailing SL (After T1 Hit):</span><b class="cb">Move SL to Cost ({pe_entry:.1f})</b></div>
+                <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f}</b></div>
+                <div class="rw"><span>Full Profit at T2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f}</b></div>
+            </div>
+            <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(be_reasons)}</div>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("#### 📈 Interactive Candlestick Chart")
@@ -243,5 +256,5 @@ if df is not None and len(df) > 5:
     fig.update_layout(height=420, margin=dict(l=5, r=5, t=10, b=10), xaxis_rangeslider_visible=False, template="plotly_dark", paper_bgcolor="#07090e", plot_bgcolor="#07090e", showlegend=False)
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
-    st.info("Tap '🔄 Sync Live Feed' above to pull live market data.")
+    st.info("Tap '🔄 Sync Live' above to pull live market data.")
     
