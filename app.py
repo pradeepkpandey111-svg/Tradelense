@@ -34,6 +34,8 @@ html,body,[class*="css"],.stMarkdown{font-family:'Plus Jakarta Sans',sans-serif!
 # ---------- SESSION STATE: locked position survives every auto-refresh ----------
 if "position" not in st.session_state:
     st.session_state.position = None   # dict once a call is live, else None
+if "oi_log" not in st.session_state:
+    st.session_state.oi_log = []   # rolling list of {t, tce, tpe, price} to detect OI buildup/unwinding
 
 @st.cache_data(ttl=60)
 def get_idx():
@@ -125,7 +127,7 @@ def fetch_chain(s_sym):
                 if 'PE' in r:
                     p = r['PE'].get('openInterest', 0); t_pe += p
                     if p > m_pe: m_pe, s_s = p, stk
-            if t_ce > 0 and s_s > 0 and r_s > 0: return {"pcr": round(t_pe / t_ce, 2), "s": float(s_s), "r": float(r_s), "src": "NSE Live"}
+            if t_ce > 0 and s_s > 0 and r_s > 0: return {"pcr": round(t_pe / t_ce, 2), "s": float(s_s), "r": float(r_s), "src": "NSE Live", "tce": t_ce, "tpe": t_pe}
     except: pass
     return None
 
@@ -150,7 +152,7 @@ if mode == "📁 Upload CSV":
             if c_c and p_c and s_c:
                 for x in [c_c, p_c, s_c]: odf[x] = pd.to_numeric(odf[x].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
                 pcr = round(odf[p_c].sum() / odf[c_c].sum(), 2) if odf[c_c].sum() > 0 else 1.0
-                oc = {"pcr": pcr, "s": float(odf.loc[odf[p_c].idxmax(), s_c]), "r": float(odf.loc[odf[c_c].idxmax(), s_c]), "src": "Manual File"}
+                oc = {"pcr": pcr, "s": float(odf.loc[odf[p_c].idxmax(), s_c]), "r": float(odf.loc[odf[c_c].idxmax(), s_c]), "src": "Manual File", "tce": float(odf[c_c].sum()), "tpe": float(odf[p_c].sum())}
                 st.success(f"✓ Loaded {inst} Option Chain (PCR: {pcr})")
 
 if mode == "⚡ Live Stream" and df is None:
@@ -249,76 +251,94 @@ if df is not None and len(df) > 6:
             st.session_state.position = None; st.rerun()
 
     else:
-        # No open position — safe to evaluate a fresh signal off the last CLOSED candle
-        b_s, be_s, b_reasons, be_reasons = 0, 0, [], []
-        if curr['ema9'] > curr['ema21']: b_s += 1; b_reasons.append("EMA 9 > EMA 21 (Bullish)")
-        else: be_s += 1; be_reasons.append("EMA 9 < EMA 21 (Bearish)")
-        if curr['close'] >= curr['ema50']: b_s += 1; b_reasons.append("Price Above EMA 50 (Uptrend)")
-        else: be_s += 1; be_reasons.append("Price Below EMA 50 (Downtrend)")
-        if 52 <= rsi <= 72: b_s += 1; b_reasons.append(f"RSI ({rsi:.1f}) Bullish")
-        elif 28 <= rsi <= 48: be_s += 1; be_reasons.append(f"RSI ({rsi:.1f}) Bearish")
-        if curr['close'] > prev['high']: b_s += 1; b_reasons.append("Candle closed above previous high")
-        elif curr['close'] < prev['low']: be_s += 1; be_reasons.append("Candle closed below previous low")
-        if oc:
-            stg = oc.get('src', 'NSE')
-            if oc['pcr'] >= 1.05 and p >= sup: b_s += 1; b_reasons.append(f"{stg} PCR {oc['pcr']} Bullish")
-            elif oc['pcr'] <= 0.88 and p <= res: be_s += 1; be_reasons.append(f"{stg} PCR {oc['pcr']} Bearish")
-            else: b_reasons.append(f"{stg} PCR {oc['pcr']} Neutral"); be_reasons.append(f"{stg} PCR {oc['pcr']} Neutral")
-        else:
-            if p > piv: b_s += 1; b_reasons.append("Above Central Pivot")
-            else: be_s += 1; be_reasons.append("Below Central Pivot")
+        # ---------- Time-of-day filter: skip fresh entries in the noisy open/close windows ----------
+        now_ist = datetime.now(IST)
+        mins_from_open = (now_ist.hour * 60 + now_ist.minute) - (9 * 60 + 15)
+        mins_to_close = (15 * 60 + 30) - (now_ist.hour * 60 + now_ist.minute)
+        is_noisy_window = mode == "⚡ Live Stream" and ((0 <= mins_from_open < 15) or (0 <= mins_to_close < 15))
 
-        is_ce, is_pe = b_s >= 3, (be_s >= 3 and b_s < 3)
+        if is_noisy_window:
+            window_name = "opening" if mins_from_open < 15 and mins_from_open >= 0 else "closing"
+< truncated lines 263-270 >
+                    first, last = st.session_state.oi_log[0], st.session_state.oi_log[-1]
+                    price_delta, oi_delta = last['price'] - first['price'], (last['tce'] + last['tpe']) - (first['tce'] + first['tpe'])
+                    if price_delta > 0 and oi_delta > 0: oi_signal, oi_dir = "Long Buildup — fresh buying backing the move up", 1
+                    elif price_delta < 0 and oi_delta > 0: oi_signal, oi_dir = "Short Buildup — fresh selling backing the move down", -1
+                    elif price_delta > 0 and oi_delta < 0: oi_signal, oi_dir = "Short Covering — rally may be less durable", 0
+                    elif price_delta < 0 and oi_delta < 0: oi_signal, oi_dir = "Long Unwinding — selloff looks like profit-booking, not fresh shorts", 0
 
-        if not is_ce and not is_pe:
-            best_sc = max(b_s, be_s)
-            st.markdown(f"""<div class="card-no"><div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ NO TRADE ZONE</b><span class="ca">{stars(best_sc)} ({best_sc}/5)</span></div><p style="margin:4px 0 0 0;font-size:0.84rem;color:#fff;font-weight:700;">Score {best_sc}/5 stars. Market rangebound between {sup:.0f} and {res:.0f}. No position opened — checked off the last closed candle, not the live tick.</p></div>""", unsafe_allow_html=True)
-        elif is_ce:
-            sl = round(max(sup, curr['close'] - (1.2 * atr)), 1); rk = round(max(ce_entry - sl, atr * 0.8), 1)
-            t1, t2 = round(ce_entry + rk, 1), round(ce_entry + (2 * rk), 1)
-            st.session_state.position = {"type": "CE", "strike": strike, "entry": ce_entry, "sl": sl, "t1": t1, "t2": t2,
-                                          "entry_time": datetime.now(IST).strftime("%d-%b %I:%M %p"), "status": "open", "t1_hit": False}
-            st.markdown(f"""
-            <div class="card-ce">
-                <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 NEW SIGNAL: BUY {strike} CE</b><span class="ca">{stars(b_s)} ({b_s}/5)</span></div>
-                <div class="g2">
-                    <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Buy Above {ce_entry:.1f}</div></div>
-                    <div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div>
-                </div>
-                <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-                    <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT PLAN (TARGETS & RISK)</div>
-                    <div class="rw"><span>🎯 Target 1 (T1) — Book 50%:</span><b class="cg">{t1:.1f} (+{rk:.1f} pts)</b></div>
-                    <div class="rw"><span>🏁 Target 2 (T2) — Book All:</span><b class="cg">{t2:.1f} (+{2*rk:.1f} pts)</b></div>
-                    <div class="rw"><span>🛡️ Trailing SL (After T1 Hit):</span><b class="cb">Move SL to Cost ({ce_entry:.1f})</b></div>
-                    <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f}</b></div>
-                    <div class="rw"><span>Full Profit at T2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f}</b></div>
-                </div>
-                <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(b_reasons)}</div>
-                <div class="reasons" style="color:#38bdf8!important;">🔒 This call is now locked and will be tracked until it hits target or stop-loss — it won't be replaced by a new suggestion mid-trade.</div>
-            </div>""", unsafe_allow_html=True)
-        elif is_pe:
-            sl = round(min(res, curr['close'] + (1.2 * atr)), 1); rk = round(max(sl - pe_entry, atr * 0.8), 1)
-            t1, t2 = round(pe_entry - rk, 1), round(pe_entry - (2 * rk), 1)
-            st.session_state.position = {"type": "PE", "strike": strike, "entry": pe_entry, "sl": sl, "t1": t1, "t2": t2,
-                                          "entry_time": datetime.now(IST).strftime("%d-%b %I:%M %p"), "status": "open", "t1_hit": False}
-            st.markdown(f"""
-            <div class="card-pe">
-                <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 NEW SIGNAL: BUY {strike} PE</b><span class="ca">{stars(be_s)} ({be_s}/5)</span></div>
-                <div class="g2">
-                    <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Sell Below {pe_entry:.1f}</div></div>
-                    <div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div>
-                </div>
-                <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-                    <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT PLAN (TARGETS & RISK)</div>
-                    <div class="rw"><span>🎯 Target 1 (T1) — Book 50%:</span><b class="cg">{t1:.1f} (+{rk:.1f} pts)</b></div>
-                    <div class="rw"><span>🏁 Target 2 (T2) — Book All:</span><b class="cg">{t2:.1f} (+{2*rk:.1f} pts)</b></div>
-                    <div class="rw"><span>🛡️ Trailing SL (After T1 Hit):</span><b class="cb">Move SL to Cost ({pe_entry:.1f})</b></div>
-                    <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f}</b></div>
-                    <div class="rw"><span>Full Profit at T2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f}</b></div>
-                </div>
-                <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(be_reasons)}</div>
-                <div class="reasons" style="color:#38bdf8!important;">🔒 This call is now locked and will be tracked until it hits target or stop-loss — it won't be replaced by a new suggestion mid-trade.</div>
-            </div>""", unsafe_allow_html=True)
+            b_s, be_s, b_reasons, be_reasons = 0, 0, [], []
+            if curr['ema9'] > curr['ema21']: b_s += 1; b_reasons.append("EMA 9 > EMA 21 (Bullish)")
+            else: be_s += 1; be_reasons.append("EMA 9 < EMA 21 (Bearish)")
+            if curr['close'] >= curr['ema50']: b_s += 1; b_reasons.append("Price Above EMA 50 (Uptrend)")
+            else: be_s += 1; be_reasons.append("Price Below EMA 50 (Downtrend)")
+            if 52 <= rsi <= 72: b_s += 1; b_reasons.append(f"RSI ({rsi:.1f}) Bullish")
+            elif 28 <= rsi <= 48: be_s += 1; be_reasons.append(f"RSI ({rsi:.1f}) Bearish")
+            if curr['close'] > prev['high']: b_s += 1; b_reasons.append("Candle closed above previous high")
+            elif curr['close'] < prev['low']: be_s += 1; be_reasons.append("Candle closed below previous low")
+            if oc:
+                stg = oc.get('src', 'NSE')
+                if oc['pcr'] >= 1.05 and p >= sup: b_s += 1; b_reasons.append(f"{stg} PCR {oc['pcr']} Bullish")
+                elif oc['pcr'] <= 0.88 and p <= res: be_s += 1; be_reasons.append(f"{stg} PCR {oc['pcr']} Bearish")
+                else: b_reasons.append(f"{stg} PCR {oc['pcr']} Neutral"); be_reasons.append(f"{stg} PCR {oc['pcr']} Neutral")
+            else:
+                if p > piv: b_s += 1; b_reasons.append("Above Central Pivot")
+                else: be_s += 1; be_reasons.append("Below Central Pivot")
+            if oi_dir == 1: b_s += 1; b_reasons.append(oi_signal)
+            elif oi_dir == -1: be_s += 1; be_reasons.append(oi_signal)
+            elif oi_signal: b_reasons.append(oi_signal); be_reasons.append(oi_signal)
+
+            is_ce, is_pe = b_s >= 3, (be_s >= 3 and b_s < 3)
+
+            if not is_ce and not is_pe:
+                best_sc = max(b_s, be_s)
+                st.markdown(f"""<div class="card-no"><div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ NO TRADE ZONE</b><span class="ca">{stars(best_sc)} ({best_sc}/5)</span></div><p style="margin:4px 0 0 0;font-size:0.84rem;color:#fff;font-weight:700;">Score {best_sc}/5 stars. Market rangebound between {sup:.0f} and {res:.0f}. No position opened — checked off the last closed candle, not the live tick.</p></div>""", unsafe_allow_html=True)
+            elif is_ce:
+                sl = round(max(sup, curr['close'] - (1.2 * atr)), 1); rk = round(max(ce_entry - sl, atr * 0.8), 1)
+                t1, t2 = round(ce_entry + rk, 1), round(ce_entry + (2 * rk), 1)
+                st.session_state.position = {"type": "CE", "strike": strike, "entry": ce_entry, "sl": sl, "t1": t1, "t2": t2,
+                                              "entry_time": datetime.now(IST).strftime("%d-%b %I:%M %p"), "status": "open", "t1_hit": False}
+                st.markdown(f"""
+                <div class="card-ce">
+                    <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 NEW SIGNAL: BUY {strike} CE</b><span class="ca">{stars(b_s)} ({b_s}/5)</span></div>
+                    <div class="g2">
+                        <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Buy Above {ce_entry:.1f}</div></div>
+                        <div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div>
+                    </div>
+                    <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
+                        <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT PLAN (TARGETS & RISK)</div>
+                        <div class="rw"><span>🎯 Target 1 (T1) — Book 50%:</span><b class="cg">{t1:.1f} (+{rk:.1f} pts)</b></div>
+                        <div class="rw"><span>🏁 Target 2 (T2) — Book All:</span><b class="cg">{t2:.1f} (+{2*rk:.1f} pts)</b></div>
+                        <div class="rw"><span>🛡️ Trailing SL (After T1 Hit):</span><b class="cb">Move SL to Cost ({ce_entry:.1f})</b></div>
+                        <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f}</b></div>
+                        <div class="rw"><span>Full Profit at T2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f}</b></div>
+                    </div>
+                    <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(b_reasons)}</div>
+                    <div class="reasons" style="color:#38bdf8!important;">🔒 This call is now locked and will be tracked until it hits target or stop-loss — it won't be replaced by a new suggestion mid-trade.</div>
+                </div>""", unsafe_allow_html=True)
+            elif is_pe:
+                sl = round(min(res, curr['close'] + (1.2 * atr)), 1); rk = round(max(sl - pe_entry, atr * 0.8), 1)
+                t1, t2 = round(pe_entry - rk, 1), round(pe_entry - (2 * rk), 1)
+                st.session_state.position = {"type": "PE", "strike": strike, "entry": pe_entry, "sl": sl, "t1": t1, "t2": t2,
+                                              "entry_time": datetime.now(IST).strftime("%d-%b %I:%M %p"), "status": "open", "t1_hit": False}
+                st.markdown(f"""
+                <div class="card-pe">
+                    <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 NEW SIGNAL: BUY {strike} PE</b><span class="ca">{stars(be_s)} ({be_s}/5)</span></div>
+                    <div class="g2">
+                        <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Sell Below {pe_entry:.1f}</div></div>
+                        <div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div>
+                    </div>
+                    <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
+                        <div style="font-size:0.7rem;font-weight:800;color:#38bdf8;">🏁 EXIT PLAN (TARGETS & RISK)</div>
+                        <div class="rw"><span>🎯 Target 1 (T1) — Book 50%:</span><b class="cg">{t1:.1f} (+{rk:.1f} pts)</b></div>
+                        <div class="rw"><span>🏁 Target 2 (T2) — Book All:</span><b class="cg">{t2:.1f} (+{2*rk:.1f} pts)</b></div>
+                        <div class="rw"><span>🛡️ Trailing SL (After T1 Hit):</span><b class="cb">Move SL to Cost ({pe_entry:.1f})</b></div>
+                        <div class="rw"><span>Max Risk ({lot_sz} Qty):</span><b class="cr">-₹{rk * lot_sz:,.0f}</b></div>
+                        <div class="rw"><span>Full Profit at T2:</span><b class="cg">+₹{2 * rk * lot_sz:,.0f}</b></div>
+                    </div>
+                    <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(be_reasons)}</div>
+                    <div class="reasons" style="color:#38bdf8!important;">🔒 This call is now locked and will be tracked until it hits target or stop-loss — it won't be replaced by a new suggestion mid-trade.</div>
+                </div>""", unsafe_allow_html=True)
 
     st.markdown("#### 📈 Interactive Candlestick Chart")
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.72, 0.28])
