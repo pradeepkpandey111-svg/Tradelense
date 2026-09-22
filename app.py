@@ -259,7 +259,14 @@ if df is not None and len(df) > 6:
 
         if is_noisy_window:
             window_name = "opening" if mins_from_open < 15 and mins_from_open >= 0 else "closing"
-< truncated lines 263-270 >
+            st.markdown(f"""<div class="card-no"><b style="color:#fbbf24;">⏳ {window_name.upper()} VOLATILITY WINDOW</b><p style="margin:4px 0 0 0;font-size:0.84rem;color:#fff;font-weight:700;">Holding off on new signals for the first/last 15 minutes of the session — this window produces the most false signals. Spot: {p:.2f}.</p></div>""", unsafe_allow_html=True)
+        else:
+            # ---------- OI buildup/unwinding: is fresh money confirming the move, or is it just short-covering? ----------
+            oi_signal, oi_dir = None, 0
+            if oc and 'tce' in oc:
+                st.session_state.oi_log.append({"t": now_ist, "tce": oc['tce'], "tpe": oc['tpe'], "price": p})
+                st.session_state.oi_log = [x for x in st.session_state.oi_log if (now_ist - x['t']).total_seconds() <= 600][-40:]
+                if len(st.session_state.oi_log) >= 2 and (now_ist - st.session_state.oi_log[0]['t']).total_seconds() >= 120:
                     first, last = st.session_state.oi_log[0], st.session_state.oi_log[-1]
                     price_delta, oi_delta = last['price'] - first['price'], (last['tce'] + last['tpe']) - (first['tce'] + first['tpe'])
                     if price_delta > 0 and oi_delta > 0: oi_signal, oi_dir = "Long Buildup — fresh buying backing the move up", 1
