@@ -162,7 +162,7 @@ if mode == "⚡ Live Stream" and df is None:
             raw = raw.reset_index(); t_c = next((x for x in raw.columns if 'time' in x or 'date' in x), raw.columns[0])
             raw['time'] = pd.to_datetime(raw[t_c]); df = raw.sort_values('time').reset_index(drop=True)
     except: pass
-        if df is not None and len(df) > 6:
+if df is not None and len(df) > 6:
     for k in ['open', 'high', 'low', 'close']:
         m = next((x for x in df.columns if k in x or (k == 'close' and 'ltp' in x)), None)
         df[k] = pd.to_numeric(df[m].astype(str).str.replace(',', ''), errors='coerce') if m else df['close']
