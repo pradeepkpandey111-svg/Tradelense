@@ -175,6 +175,17 @@ if df is not None and len(df) > 6:
     df['rsi'] = (100 - (100 / (1 + (chg.clip(lower=0).rolling(14).mean() / (-chg.clip(upper=0)).rolling(14).mean().replace(0, np.nan))))).fillna(50)
     tr = pd.concat([df['high'] - df['low'], (df['high'] - df['close'].shift()).abs(), (df['low'] - df['close'].shift()).abs()], axis=1).max(axis=1)
     df['atr'] = tr.rolling(14).mean().bfill()
+    df['atr_avg20'] = df['atr'].rolling(20).mean().bfill()
+
+    # ---------- ADX: is the market actually trending, or is this EMA crossover just chop? ----------
+    up_move, down_move = df['high'].diff(), -df['low'].diff()
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    atr_wilder = tr.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    plus_di = 100 * pd.Series(plus_dm, index=df.index).ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_wilder
+    minus_di = 100 * pd.Series(minus_dm, index=df.index).ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_wilder
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    df['adx'] = dx.ewm(alpha=1/14, min_periods=14, adjust=False).mean().fillna(0)
 
     # ---------- FIX: score off the LAST FULLY CLOSED candle, not a candle still forming ----------
     sig_idx = -2 if (mode == "⚡ Live Stream" and len(df) >= 10) else -1
@@ -186,20 +197,27 @@ if df is not None and len(df) > 6:
     rsi = curr['rsi']
     prev_h, prev_l = max(prev['high'], curr['close'] + (0.5 * atr)), min(prev['low'], curr['close'] - (0.5 * atr))
     piv = (prev_h + prev_l + curr['close']) / 3
-    sup = oc['s'] if oc and oc['s'] < p else round(min((2 * piv) - prev_h, p - (0.8 * atr)), 1)
-    res = oc['r'] if oc and oc['r'] > p else round(max((2 * piv) - prev_l, p + (0.8 * atr)), 1)
+    res_walls, sup_walls = oi_walls(oc.get('chain', []), p) if oc else ([], [])
+    sup = sup_walls[0]['strike'] if sup_walls else (oc['s'] if oc and oc['s'] < p else round(min((2 * piv) - prev_h, p - (0.8 * atr)), 1))
+    res = res_walls[0]['strike'] if res_walls else (oc['r'] if oc and oc['r'] > p else round(max((2 * piv) - prev_l, p + (0.8 * atr)), 1))
     strike = int(round(p / step_k) * step_k)
 
     buf = round(max(2.0, atr * 0.20), 1)
     ce_entry, pe_entry = round(max(curr['high'] + buf, curr['close'] + 2.0), 1), round(min(curr['low'] - buf, curr['close'] - 2.0), 1)
 
-    def stars(n): return "★" * n + "☆" * (5 - n)
+    MAX_SCORE = 8  # EMA cross, EMA50 trend, RSI level, RSI slope, candle break, PCR level, PCR trend, OI buildup
+    def stars(n, mx=MAX_SCORE): return "★" * n + "☆" * max(0, mx - n)
     oc_badge = f"<span class='cg'>● {oc['src']} (PCR: {oc['pcr']})</span>" if oc else "<span class='ca'>● Dynamic Pivot</span>"
+    adx_now = float(curr['adx']) if pd.notna(curr['adx']) else 0.0
+    trend_lbl = "Trending" if adx_now >= 18 else "Choppy"
+    trend_col = 'cg' if adx_now >= 18 else 'ca'
+    vol_elevated = pd.notna(curr['atr_avg20']) and curr['atr_avg20'] > 0 and atr > curr['atr_avg20'] * 1.3
 
     st.markdown(f"""<div class="tile" style="margin-bottom:8px;">
     <div style="display:flex;justify-content:space-between;"><span class="lbl">{inst} CURRENT SPOT</span><span class="lbl">CHAIN: {oc_badge}</span></div>
     <div class="val cb" style="font-size:1.25rem;">{p:.2f}</div>
-    <div class="g2"><div class="tile"><span class="lbl">SUPPORT (PE WALL)</span><div class="val cg">{sup:.0f}</div></div><div class="tile"><span class="lbl">RESISTANCE (CE WALL)</span><div class="val cr">{res:.0f}</div></div></div>
+    <div class="g2"><div class="tile"><span class="lbl">SUPPORT (PE WALL)</span><div class="val cg">{sup:.0f}</div>{'<div style="font-size:0.65rem;color:#94a3b8;margin-top:2px;">next: '+', '.join(f"{w['strike']:.0f}" for w in sup_walls[1:3])+'</div>' if len(sup_walls)>1 else ''}</div><div class="tile"><span class="lbl">RESISTANCE (CE WALL)</span><div class="val cr">{res:.0f}</div>{'<div style="font-size:0.65rem;color:#94a3b8;margin-top:2px;">next: '+', '.join(f"{w['strike']:.0f}" for w in res_walls[1:3])+'</div>' if len(res_walls)>1 else ''}</div></div>
+    <div class="g2" style="margin-top:6px;"><div class="tile"><span class="lbl">ADX (TREND STRENGTH)</span><div class="val {trend_col}">{adx_now:.1f} · {trend_lbl}</div></div><div class="tile"><span class="lbl">VOLATILITY</span><div class="val {'ca' if vol_elevated else 'cb'}">{'Elevated — size down' if vol_elevated else 'Normal'}</div></div></div>
     </div>""", unsafe_allow_html=True)
 
     st.markdown("#### 🎯 Execution Setup")
@@ -256,13 +274,17 @@ if df is not None and len(df) > 6:
         mins_from_open = (now_ist.hour * 60 + now_ist.minute) - (9 * 60 + 15)
         mins_to_close = (15 * 60 + 30) - (now_ist.hour * 60 + now_ist.minute)
         is_noisy_window = mode == "⚡ Live Stream" and ((0 <= mins_from_open < 15) or (0 <= mins_to_close < 15))
+        adx_val = float(curr['adx']) if pd.notna(curr['adx']) else 0.0
+        is_choppy = adx_val > 0 and adx_val < 18   # ADX below ~18-20 usually means no real trend to follow
 
         if is_noisy_window:
             window_name = "opening" if mins_from_open < 15 and mins_from_open >= 0 else "closing"
             st.markdown(f"""<div class="card-no"><b style="color:#fbbf24;">⏳ {window_name.upper()} VOLATILITY WINDOW</b><p style="margin:4px 0 0 0;font-size:0.84rem;color:#fff;font-weight:700;">Holding off on new signals for the first/last 15 minutes of the session — this window produces the most false signals. Spot: {p:.2f}.</p></div>""", unsafe_allow_html=True)
+        elif is_choppy:
+            st.markdown(f"""<div class="card-no"><b style="color:#fbbf24;">📉 CHOPPY / RANGING MARKET</b><p style="margin:4px 0 0 0;font-size:0.84rem;color:#fff;font-weight:700;">ADX is {adx_val:.1f} (below 18) — the market isn't trending right now, so an EMA crossover here is likely to whipsaw rather than run. Holding off until direction firms up.</p></div>""", unsafe_allow_html=True)
         else:
-            # ---------- OI buildup/unwinding: is fresh money confirming the move, or is it just short-covering? ----------
-            oi_signal, oi_dir = None, 0
+            # ---------- OI buildup/unwinding + PCR trend, both from the same rolling log ----------
+            oi_signal, oi_dir, pcr_signal, pcr_dir = None, 0, None, 0
             if oc and 'tce' in oc:
                 st.session_state.oi_log.append({"t": now_ist, "tce": oc['tce'], "tpe": oc['tpe'], "price": p})
                 st.session_state.oi_log = [x for x in st.session_state.oi_log if (now_ist - x['t']).total_seconds() <= 600][-40:]
@@ -273,6 +295,11 @@ if df is not None and len(df) > 6:
                     elif price_delta < 0 and oi_delta > 0: oi_signal, oi_dir = "Short Buildup — fresh selling backing the move down", -1
                     elif price_delta > 0 and oi_delta < 0: oi_signal, oi_dir = "Short Covering — rally may be less durable", 0
                     elif price_delta < 0 and oi_delta < 0: oi_signal, oi_dir = "Long Unwinding — selloff looks like profit-booking, not fresh shorts", 0
+                    first_pcr = (first['tpe'] / first['tce']) if first['tce'] > 0 else None
+                    last_pcr = (last['tpe'] / last['tce']) if last['tce'] > 0 else None
+                    if first_pcr and last_pcr:
+                        if last_pcr - first_pcr > 0.03: pcr_signal, pcr_dir = f"PCR rising ({first_pcr:.2f}→{last_pcr:.2f}) — more puts being added, bullish tilt", 1
+                        elif first_pcr - last_pcr > 0.03: pcr_signal, pcr_dir = f"PCR falling ({first_pcr:.2f}→{last_pcr:.2f}) — more calls being added, bearish tilt", -1
 
             b_s, be_s, b_reasons, be_reasons = 0, 0, [], []
             if curr['ema9'] > curr['ema21']: b_s += 1; b_reasons.append("EMA 9 > EMA 21 (Bullish)")
@@ -281,6 +308,8 @@ if df is not None and len(df) > 6:
             else: be_s += 1; be_reasons.append("Price Below EMA 50 (Downtrend)")
             if 52 <= rsi <= 72: b_s += 1; b_reasons.append(f"RSI ({rsi:.1f}) Bullish")
             elif 28 <= rsi <= 48: be_s += 1; be_reasons.append(f"RSI ({rsi:.1f}) Bearish")
+            if rsi > prev['rsi']: b_s += 1; b_reasons.append(f"RSI rising ({prev['rsi']:.1f}→{rsi:.1f}) — momentum building")
+            else: be_s += 1; be_reasons.append(f"RSI falling ({prev['rsi']:.1f}→{rsi:.1f}) — momentum fading")
             if curr['close'] > prev['high']: b_s += 1; b_reasons.append("Candle closed above previous high")
             elif curr['close'] < prev['low']: be_s += 1; be_reasons.append("Candle closed below previous low")
             if oc:
@@ -288,6 +317,8 @@ if df is not None and len(df) > 6:
                 if oc['pcr'] >= 1.05 and p >= sup: b_s += 1; b_reasons.append(f"{stg} PCR {oc['pcr']} Bullish")
                 elif oc['pcr'] <= 0.88 and p <= res: be_s += 1; be_reasons.append(f"{stg} PCR {oc['pcr']} Bearish")
                 else: b_reasons.append(f"{stg} PCR {oc['pcr']} Neutral"); be_reasons.append(f"{stg} PCR {oc['pcr']} Neutral")
+                if pcr_dir == 1: b_s += 1; b_reasons.append(pcr_signal)
+                elif pcr_dir == -1: be_s += 1; be_reasons.append(pcr_signal)
             else:
                 if p > piv: b_s += 1; b_reasons.append("Above Central Pivot")
                 else: be_s += 1; be_reasons.append("Below Central Pivot")
@@ -295,11 +326,11 @@ if df is not None and len(df) > 6:
             elif oi_dir == -1: be_s += 1; be_reasons.append(oi_signal)
             elif oi_signal: b_reasons.append(oi_signal); be_reasons.append(oi_signal)
 
-            is_ce, is_pe = b_s >= 3, (be_s >= 3 and b_s < 3)
+            is_ce, is_pe = b_s >= 5, (be_s >= 5 and b_s < 5)
 
             if not is_ce and not is_pe:
                 best_sc = max(b_s, be_s)
-                st.markdown(f"""<div class="card-no"><div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ NO TRADE ZONE</b><span class="ca">{stars(best_sc)} ({best_sc}/5)</span></div><p style="margin:4px 0 0 0;font-size:0.84rem;color:#fff;font-weight:700;">Score {best_sc}/5 stars. Market rangebound between {sup:.0f} and {res:.0f}. No position opened — checked off the last closed candle, not the live tick.</p></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="card-no"><div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ NO TRADE ZONE</b><span class="ca">{stars(best_sc)} ({best_sc}/{MAX_SCORE})</span></div><p style="margin:4px 0 0 0;font-size:0.84rem;color:#fff;font-weight:700;">Score {best_sc}/{MAX_SCORE}. Market rangebound between {sup:.0f} and {res:.0f}. No position opened — checked off the last closed candle, not the live tick.</p></div>""", unsafe_allow_html=True)
             elif is_ce:
                 sl = round(max(sup, curr['close'] - (1.2 * atr)), 1); rk = round(max(ce_entry - sl, atr * 0.8), 1)
                 t1, t2 = round(ce_entry + rk, 1), round(ce_entry + (2 * rk), 1)
@@ -307,7 +338,7 @@ if df is not None and len(df) > 6:
                                               "entry_time": datetime.now(IST).strftime("%d-%b %I:%M %p"), "status": "open", "t1_hit": False}
                 st.markdown(f"""
                 <div class="card-ce">
-                    <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 NEW SIGNAL: BUY {strike} CE</b><span class="ca">{stars(b_s)} ({b_s}/5)</span></div>
+                    <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 NEW SIGNAL: BUY {strike} CE</b><span class="ca">{stars(b_s)} ({b_s}/{MAX_SCORE})</span></div>
                     <div class="g2">
                         <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Buy Above {ce_entry:.1f}</div></div>
                         <div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div>
@@ -330,7 +361,7 @@ if df is not None and len(df) > 6:
                                               "entry_time": datetime.now(IST).strftime("%d-%b %I:%M %p"), "status": "open", "t1_hit": False}
                 st.markdown(f"""
                 <div class="card-pe">
-                    <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 NEW SIGNAL: BUY {strike} PE</b><span class="ca">{stars(be_s)} ({be_s}/5)</span></div>
+                    <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 NEW SIGNAL: BUY {strike} PE</b><span class="ca">{stars(be_s)} ({be_s}/{MAX_SCORE})</span></div>
                     <div class="g2">
                         <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Sell Below {pe_entry:.1f}</div></div>
                         <div class="tile"><span class="lbl">STOP LOSS (SL)</span><div class="val cr">{sl:.1f} (-{rk:.1f} pts)</div></div>
