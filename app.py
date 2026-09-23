@@ -1,16 +1,15 @@
-import streamlit as st, pandas as pd, numpy as np, plotly.graph_objects as go, yfinance as yf, feedparser, requests
-from plotly.subplots import make_subplots
+import streamlit as st, pandas as pd, numpy as np, yfinance as yf, feedparser, requests
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timezone, timedelta
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-st.set_page_config(page_title="TradeLense Pro Terminal", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="TradeLense AI Terminal", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
 st.markdown("""<style>
 header[data-testid="stHeader"]{visibility:hidden!important;height:0!important;}
 html,body,[class*="css"],.stMarkdown{font-family:'Plus Jakarta Sans',sans-serif!important;background:#07090e;color:#fff!important;}
-.block-container{padding:1.4rem 0.6rem 2.5rem 0.6rem!important;}
+.block-container{padding:1.2rem 0.6rem 2.5rem 0.6rem!important;}
 .banner{background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:8px;}
 .news-box{background:#0d121c;border:1px solid #1e293b;border-radius:8px;padding:8px 10px;margin-bottom:6px;}
 .news-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;}
@@ -20,31 +19,36 @@ html,body,[class*="css"],.stMarkdown{font-family:'Plus Jakarta Sans',sans-serif!
 .card-buy{background:#062b20;border-left:5px solid #10b981;border-radius:10px;padding:12px;margin-bottom:8px;}
 .card-sell{background:#2d0c13;border-left:5px solid #f43f5e;border-radius:10px;padding:12px;margin-bottom:8px;}
 .card-no{background:#241703;border-left:5px solid #f59e0b;border-radius:10px;padding:12px;margin-bottom:8px;}
-.card-locked{background:#0c1a2b;border-left:5px solid #38bdf8;border-radius:10px;padding:12px;margin-bottom:8px;}
+.card-locked{background:#0c1a2b;border:1px solid #38bdf8;border-left:6px solid #38bdf8;border-radius:10px;padding:14px;margin-bottom:8px;}
+.card-waiting{background:#18181b;border:1px dashed #fbbf24;border-left:6px solid #fbbf24;border-radius:10px;padding:14px;margin-bottom:8px;}
 .card-blocked{background:#3b1116;border-left:5px solid #ef4444;border-radius:10px;padding:12px;margin-bottom:8px;}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;}
 .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:4px;}
 .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px;}
 .tile{background:#090e17;border-radius:8px;padding:8px 10px;border:1px solid #1e293b;}
 .lbl{font-size:0.65rem;font-weight:700;color:#94a3b8!important;text-transform:uppercase;}
-.val{font-family:monospace;font-size:0.92rem;font-weight:700;}
+.val{font-family:monospace;font-size:0.95rem;font-weight:700;}
 .cg{color:#10b981!important;}.cr{color:#f43f5e!important;}.cb{color:#38bdf8!important;}.ca{color:#fbbf24!important;}
 .rw{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.12);font-size:0.82rem;font-family:monospace;}
 .rw span{color:#94a3b8!important;font-weight:600!important;}
 .reasons{margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.2);font-size:0.8rem;color:#fff!important;font-weight:700;}
+.status-pill{background:#1e293b;border-radius:4px;padding:2px 6px;font-size:0.7rem;font-weight:700;color:#38bdf8;}
 </style>
 <div class="banner">
-  <div style="font-size:1.3rem;font-weight:800;">⚡ TradeLense AI Terminal</div>
-  <div style="font-size:0.75rem;color:#94a3b8;">Unified Confluence Engine: Options Indices & Cash Shares</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div style="font-size:1.3rem;font-weight:800;">⚡ TradeLense AI Terminal</div>
+    <span class="status-pill">PRO INTRADAY DESK</span>
+  </div>
+  <div style="font-size:0.75rem;color:#94a3b8;">Multi-Confluence Engine: Session VWAP, Multi-EMA, Supertrend, MACD, BB, Events & Level Trailing</div>
 </div>""", unsafe_allow_html=True)
 
-# ---------- SESSION STATE ----------
-if "position" not in st.session_state:
-    st.session_state.position = None
+# ---------- PERSISTENT MULTI-ASSET STATE ----------
+if "positions" not in st.session_state:
+    st.session_state.positions = {}
 if "oi_log" not in st.session_state:
     st.session_state.oi_log = []
 
-# ---------- ASSET SELECTION ----------
+# ---------- ASSET PICKER ----------
 col_tab1, col_tab2 = st.columns([1, 1.2])
 asset_tab = col_tab1.radio("Trading Module", ["Option Indices", "Shares"], horizontal=True)
 
@@ -77,22 +81,21 @@ c_m1, c_m2 = st.columns([1.2, 1])
 mode = c_m1.radio("Feed Mode", ["⚡ Live Stream", "📁 Upload CSV"], horizontal=True)
 trading_capital = c_m2.number_input("Account Capital (₹)", value=100000, step=25000) if is_stock else 50000
 
-# ---------- AUTO-SYNC ----------
+# Auto-sync
 if mode == "⚡ Live Stream":
     a1, a2, a3 = st.columns([1, 1, 1.4])
     auto_on = a1.toggle("Auto-sync", value=True)
     refresh_sec = a2.selectbox("Interval", [10, 15, 30, 60], index=1, format_func=lambda x: f"{x}s")
     if auto_on:
-        st_autorefresh(interval=refresh_sec * 1000, key="auto_sync_interval")
+        st_autorefresh(interval=refresh_sec * 1000, key="desk_refresh_sync")
     if a3.button("🔄 Sync Now", use_container_width=True, type="primary"):
         st.cache_data.clear()
         st.rerun()
     ist_time = datetime.now(IST).strftime("%d-%b-%Y | %I:%M:%S %p")
     st.markdown(f"<div style='font-size:0.75rem;color:#94a3b8;font-weight:700;'>🕒 Synced: <span style='color:#38bdf8;'>{ist_time}</span></div>", unsafe_allow_html=True)
 
-# ---------- OI WALLS & OPTION CHAIN (CRASH BUG FIX) ----------
+# ---------- OPTION CHAIN HELPERS ----------
 def oi_walls(chain_list, spot):
-    """Computes sorted resistance (Call OI) and support (Put OI) walls around spot price."""
     ce_strikes = [x for x in chain_list if x.get('strike', 0) >= spot and x.get('ce_oi', 0) > 0]
     pe_strikes = [x for x in chain_list if x.get('strike', 0) <= spot and x.get('pe_oi', 0) > 0]
     ce_sorted = sorted(ce_strikes, key=lambda x: x.get('ce_oi', 0), reverse=True)
@@ -129,7 +132,7 @@ def fetch_chain(s_sym):
 
 oc = fetch_chain(nse_sym) if (mode == "⚡ Live Stream" and not is_stock) else None
 
-# ---------- MACRO & BROAD SENTIMENT ----------
+# ---------- GLOBAL MACRO & BROAD SENTIMENT ----------
 @st.cache_data(ttl=180)
 def get_macro():
     res = {}
@@ -146,13 +149,13 @@ mac = get_macro()
 nifty_pct = mac.get("Nifty 50", {}).get("pct", 0.0)
 broad_market_vote = "Bullish Tailwind 🟢" if nifty_pct >= 0.2 else ("Bearish Headwind 🔴" if nifty_pct <= -0.2 else "Neutral Drift ⚪")
 
-# ---------- NEWS & FUNDAMENTALS / EVENTS GATING ----------
+# ---------- CORPORATE ACTIONS, RESULTS & RSS SENTIMENT ----------
 @st.cache_data(ttl=300)
 def fetch_fundamentals_events_and_news(q_sym, is_stk):
     query = f"{q_sym}+share+price" if is_stk else "Nifty+Indian+stock+market"
     f = feedparser.parse(f"https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en")
-    items, b_w, be_w, sc = [], ['surge', 'rally', 'jump', 'gain', 'profit', 'expansion', 'buy', 'high'], ['slump', 'drop', 'fall', 'probe', 'cut', 'loss', 'fraud', 'miss'], 0
-    for e in f.entries[:4]:
+    items, b_w, be_w, sc = [], ['surge', 'rally', 'jump', 'gain', 'profit', 'expansion', 'buy', 'high', 'breakout'], ['slump', 'drop', 'fall', 'probe', 'cut', 'loss', 'fraud', 'miss', 'breakdown'], 0
+    for e in f.entries[:3]:
         t = e.title
         src = e.source.title if 'source' in e and 'title' in e.source else "FINANCE"
         p = any(w in t.lower() for w in b_w)
@@ -211,7 +214,7 @@ def fetch_fundamentals_events_and_news(q_sym, is_stk):
 
 news_sent, news_sc, news_feed, fund_data = fetch_fundamentals_events_and_news(nse_sym, is_stock)
 
-# Macro Display Ribbon
+# Macro ribbon
 st.markdown(f"""<div class="tile" style="margin-bottom:8px;">
 <div style="display:flex;justify-content:space-between;"><span class="lbl">🌐 GLOBAL MACRO</span><span class="lbl ca">{news_sent}</span></div>
 <div class="g4">
@@ -227,11 +230,11 @@ if is_stock:
     <div class="g4">
       <div class="tile"><span class="lbl">SECTOR</span><div class="val cb" style="font-size:0.75rem;">{fund_data['sector'][:14]}</div></div>
       <div class="tile"><span class="lbl">MKT CAP / P/E</span><div class="val ca" style="font-size:0.75rem;">{fund_data['market_cap']} | {fund_data['pe']}</div></div>
-      <div class="tile"><span class="lbl">EARNINGS WINDOW</span><div class="val {'cr' if fund_data['earnings_block'] else 'cg'}" style="font-size:0.75rem;">{str(fund_data['days_to_earnings'])+'d away' if fund_data['days_to_earnings'] is not None else 'Clear'}</div></div>
+      <div class="tile"><span class="lbl">EARNINGS GATING</span><div class="val {'cr' if fund_data['earnings_block'] else 'cg'}" style="font-size:0.75rem;">{str(fund_data['days_to_earnings'])+'d away' if fund_data['days_to_earnings'] is not None else 'Clear'}</div></div>
       <div class="tile"><span class="lbl">LAST CORP ACTION</span><div class="val cb" style="font-size:0.75rem;">{fund_data['corp_action']}</div></div>
     </div></div>""", unsafe_allow_html=True)
 
-# ---------- UNIFIED TECHNICAL ENGINE ----------
+# ---------- UNIFIED INDICATOR ENGINE (DAILY SESSION VWAP FIX) ----------
 def compute_indicators(df_in):
     df_out = df_in.copy()
     close_col = next((x for x in df_out.columns if 'close' in x or 'ltp' in x), None)
@@ -246,6 +249,7 @@ def compute_indicators(df_in):
         else:
             df_out[col] = 1.0 if col == 'volume' else df_out['close']
 
+    # Trend EMAs
     df_out['ema9'] = df_out['close'].ewm(span=9, adjust=False).mean()
     df_out['ema21'] = df_out['close'].ewm(span=21, adjust=False).mean()
     df_out['ema50'] = df_out['close'].ewm(span=50, adjust=False).mean()
@@ -268,6 +272,8 @@ def compute_indicators(df_in):
     bb_std = df_out['close'].rolling(20).std()
     df_out['bb_upper'] = bb_mid + (2 * bb_std)
     df_out['bb_lower'] = bb_mid - (2 * bb_std)
+    df_out['bb_width'] = ((df_out['bb_upper'] - df_out['bb_lower']) / bb_mid) * 100
+    df_out['bb_squeeze'] = df_out['bb_width'] < df_out['bb_width'].rolling(20).mean()
 
     # ATR (14)
     tr = pd.concat([df_out['high'] - df_out['low'], (df_out['high'] - df_out['close'].shift()).abs(), (df_out['low'] - df_out['close'].shift()).abs()], axis=1).max(axis=1)
@@ -295,10 +301,11 @@ def compute_indicators(df_in):
     df_out['supertrend_dir'] = st_dir
     df_out['supertrend'] = st_line
 
-    # Intraday VWAP
-    cum_v = df_out['volume'].cumsum()
-    cum_pv = (df_out['volume'] * ((df_out['high'] + df_out['low'] + df_out['close']) / 3)).cumsum()
-    df_out['vwap'] = (cum_pv / cum_v.replace(0, np.nan)).bfill()
+    # Daily Resetted VWAP (Fixes multi-day distortion)
+    df_out['date_grp'] = df_out['time'].dt.date
+    df_out['pv'] = (df_out['high'] + df_out['low'] + df_out['close']) / 3 * df_out['volume']
+    df_out['vwap'] = df_out.groupby('date_grp')['pv'].cumsum() / df_out.groupby('date_grp')['volume'].cumsum().replace(0, np.nan)
+    df_out['vwap'] = df_out['vwap'].ffill().bfill()
 
     # ADX (14)
     up_m = df_out['high'].diff()
@@ -311,7 +318,7 @@ def compute_indicators(df_in):
     dx = 100 * (p_di - m_di).abs() / (p_di + m_di).replace(0, np.nan)
     df_out['adx'] = dx.ewm(alpha=1/14, min_periods=14, adjust=False).mean().fillna(0)
 
-    # Relative Volume
+    # RVOL vs 20 SMA
     df_out['vol_ma20'] = df_out['volume'].rolling(20).mean().bfill()
     df_out['rvol'] = df_out['volume'] / df_out['vol_ma20'].replace(0, 1)
 
@@ -320,8 +327,8 @@ def compute_indicators(df_in):
 # ---------- DATA LOADING ----------
 df = None
 if mode == "📁 Upload CSV":
-    with st.expander(f"📂 Upload Candle Data for {inst}", expanded=True):
-        up_f = st.file_uploader("Upload CSV", key="main_csv_upload")
+    with st.expander(f"📂 Upload Data for {inst}", expanded=True):
+        up_f = st.file_uploader("Upload CSV", key="desk_csv_upload")
         if up_f:
             df = pd.read_csv(up_f)
             df.columns = [str(x).strip().lower() for x in df.columns]
@@ -341,7 +348,7 @@ if mode == "⚡ Live Stream" and df is None:
             raw['time'] = pd.to_datetime(raw[t_col])
             df = raw.sort_values('time').reset_index(drop=True)
     except Exception as ex:
-        st.error(f"Error fetching live stream: {ex}")
+        st.error(f"Feed error: {ex}")
 
 if df is not None and len(df) > 20:
     df = compute_indicators(df)
@@ -350,7 +357,12 @@ if df is not None and len(df) > 20:
     curr, prev = df.iloc[sig_idx], df.iloc[sig_idx - 1]
     live_p = float(df['close'].iloc[-1])
 
-    day_high, day_low = float(df['high'].max()), float(df['low'].min())
+    # Current Day High / Low
+    today_date = df['time'].iloc[-1].date()
+    today_candles = df[df['time'].dt.date == today_date]
+    day_high = float(today_candles['high'].max()) if not today_candles.empty else float(df['high'].tail(50).max())
+    day_low = float(today_candles['low'].min()) if not today_candles.empty else float(df['low'].tail(50).min())
+
     atr_val = float(curr['atr']) if pd.notna(curr['atr']) and curr['atr'] > 0 else live_p * 0.005
     adx_val = float(curr['adx'])
     vwap_val = float(curr['vwap'])
@@ -366,7 +378,7 @@ if df is not None and len(df) > 20:
     dist_52h = ((h52 - live_p) / h52) * 100
     dist_52l = ((live_p - l52) / l52) * 100
 
-    oc_badge = f"<span class='cg'>● {oc['src']} (PCR: {oc['pcr']})</span>" if oc else "<span class='ca'>● Dynamic Pivot (No Live Chain)</span>"
+    oc_badge = f"<span class='cg'>● {oc['src']} (PCR: {oc['pcr']})</span>" if oc else "<span class='ca'>● Dynamic Pivot Mode</span>"
 
     # Spot & Metric Bar
     st.markdown(f"""<div class="tile" style="margin-bottom:8px;">
@@ -380,131 +392,190 @@ if df is not None and len(df) > 20:
     </div>
     <div class="g3" style="margin-top:4px;">
       <div class="tile"><span class="lbl">ADX TREND</span><div class="val {'cg' if adx_val>=18 else 'ca'}">{adx_val:.1f} ({'Trending' if adx_val>=18 else 'Choppy'})</div></div>
-      <div class="tile"><span class="lbl">VWAP BIAS</span><div class="val {'cg' if live_p>=vwap_val else 'cr'}">{'Above' if live_p>=vwap_val else 'Below'} (₹{vwap_val:.1f})</div></div>
-      <div class="tile"><span class="lbl">52W RANGE</span><div class="val ca">-{dist_52h:.1f}% / +{dist_52l:.1f}%</div></div>
+      <div class="tile"><span class="lbl">SESSION VWAP</span><div class="val {'cg' if live_p>=vwap_val else 'cr'}">₹{vwap_val:.1f}</div></div>
+      <div class="tile"><span class="lbl">52W PROXIMITY</span><div class="val ca">-{dist_52h:.1f}% / +{dist_52l:.1f}%</div></div>
     </div>
     </div>""", unsafe_allow_html=True)
 
-    # ---------- EXECUTION ENGINE WITH ADAPTIVE SCORING ----------
-    st.markdown("#### 🎯 Execution Setup")
-    pos = st.session_state.position
+    # Technical Confluence Radar (Compact Display)
+    st.markdown(f"""<div class="tile" style="margin-bottom:8px;">
+    <div style="display:flex;justify-content:space-between;"><span class="lbl">⚡ TECHNICAL RADAR</span><span class="lbl cb">RSI: {curr['rsi']:.1f}</span></div>
+    <div class="g4">
+      <div class="tile"><span class="lbl">EMA 9 / 21 / 50</span><div class="val {'cg' if (curr['ema9']>curr['ema21'] and curr['close']>curr['ema50']) else 'cr'}">{'BULL ALIGNED' if (curr['ema9']>curr['ema21'] and curr['close']>curr['ema50']) else 'BEAR / MIXED'}</div></div>
+      <div class="tile"><span class="lbl">SUPERTREND</span><div class="val {'cg' if curr['supertrend_dir']==1 else 'cr'}">{'BULLISH' if curr['supertrend_dir']==1 else 'BEARISH'}</div></div>
+      <div class="tile"><span class="lbl">MACD HIST</span><div class="val {'cg' if curr['macd_hist']>=0 else 'cr'}">{curr['macd_hist']:+.2f}</div></div>
+      <div class="tile"><span class="lbl">RVOL (20MA)</span><div class="val {'cg' if rvol_val>=1.2 else 'ca'}">{rvol_val:.2f}x</div></div>
+    </div>
+    </div>""", unsafe_allow_html=True)
 
-    # 1. Position Tracking
-    if pos is not None and pos.get('status') == 'open':
+    # ---------- TWO-STAGE TRADE LIFECYCLE CONTROLLER ----------
+    st.markdown("#### 🎯 Execution Desk")
+    pos = st.session_state.positions.get(sym)
+
+    # STATE 1: Trade is awaiting breakout trigger
+    if pos is not None and pos.get('status') == 'waiting_trigger':
         is_long = pos['direction'] == 'BUY'
-        pnl_spot_pts = (live_p - pos['entry']) if is_long else (pos['entry'] - live_p)
+        # Check if entry breakout has occurred
+        triggered = (live_p >= pos['entry']) if is_long else (live_p <= pos['entry'])
+        invalidated = (live_p <= pos['sl']) if is_long else (live_p >= pos['sl'])
 
+        if triggered:
+            pos['status'] = 'active'
+            pos['fill_price'] = live_p
+            pos['fill_time'] = datetime.now(IST).strftime("%I:%M %p")
+            st.session_state.positions[sym] = pos
+            st.rerun()
+        elif invalidated:
+            st.session_state.positions[sym] = None
+            st.warning(f"⚠️ Setup for {pos['label']} was invalidated before trigger. Scanner reset.")
+            st.rerun()
+        else:
+            pts_away = abs(pos['entry'] - live_p)
+            st.markdown(f"""<div class="card-waiting">
+              <div style="display:flex;justify-content:space-between;"><b style="font-size:1.05rem;color:#fbbf24;">⏳ SETUP FOUND — AWAITING BREAKOUT: {pos['label']}</b><span class="ca">{pts_away:.2f} pts to trigger</span></div>
+              <div class="g2">
+                <div class="tile"><span class="lbl">TRIGGER CONDITION</span><div class="val cb">{'Break Above' if is_long else 'Break Below'} ₹{pos['entry']:.2f}</div></div>
+                <div class="tile"><span class="lbl">INVALIDATION LEVEL</span><div class="val cr">₹{pos['sl']:.2f}</div></div>
+              </div>
+              <div class="reasons">
+                🎯 Targets: T1 ₹{pos['t1']:.2f} &nbsp;|&nbsp; 🏁 T2 ₹{pos['t2']:.2f}<br>
+                Institutional Note: Order stays in pending state until spot actually prints beyond trigger level.
+              </div>
+            </div>""", unsafe_allow_html=True)
+            if st.button(f"✖ Cancel Pending Order ({inst})", use_container_width=True):
+                st.session_state.positions[sym] = None
+                st.rerun()
+
+    # STATE 2: Trade is active and live
+    elif pos is not None and pos.get('status') == 'active':
+        is_long = pos['direction'] == 'BUY'
+        entry_price = pos.get('fill_price', pos['entry'])
+        pnl_spot_pts = (live_p - entry_price) if is_long else (entry_price - live_p)
+
+        # SL and Target monitoring
         if (is_long and live_p <= pos['sl']) or (not is_long and live_p >= pos['sl']):
             pos['status'] = 'SL Hit'; pos['exit_price'] = pos['sl']
         elif (is_long and live_p >= pos['t2']) or (not is_long and live_p <= pos['t2']):
             pos['status'] = 'Target 2 Hit'; pos['exit_price'] = pos['t2']
         elif ((is_long and live_p >= pos['t1']) or (not is_long and live_p <= pos['t1'])) and not pos.get('t1_hit'):
-            pos['t1_hit'] = True; pos['sl'] = pos['entry']
+            pos['t1_hit'] = True
+            pos['sl'] = entry_price  # Move SL to breakeven after T1
 
-        st.session_state.position = pos
+        st.session_state.positions[sym] = pos
         approx_pts = pnl_spot_pts * pos.get('delta', 1.0)
         pnl_cash = approx_pts * pos['qty']
         col_pnl = 'cg' if pnl_spot_pts >= 0 else 'cr'
 
         st.markdown(f"""<div class="card-locked">
-          <div style="display:flex;justify-content:space-between;"><b style="font-size:1.1rem;">📌 LIVE TRADE: {pos['label']}</b><span class="ca">Entry ₹{pos['entry']:.2f}</span></div>
+          <div style="display:flex;justify-content:space-between;"><b style="font-size:1.1rem;color:#38bdf8;">📌 LIVE POSITION LOCKED: {pos['label']}</b><span class="ca">Filled @ ₹{entry_price:.2f}</span></div>
           <div class="g2">
             <div class="tile"><span class="lbl">EST. P&L ({pos['qty']} QTY)</span><div class="val {col_pnl}">{pnl_spot_pts:+.2f} pts spot (₹{pnl_cash:+,.2f})</div></div>
-            <div class="tile"><span class="lbl">ACTIVE SL</span><div class="val ca">₹{pos['sl']:.2f}{' · Trailed to Cost' if pos.get('t1_hit') else ''}</div></div>
+            <div class="tile"><span class="lbl">PROTECTIVE SL</span><div class="val ca">₹{pos['sl']:.2f}{' · Trailed to Breakeven' if pos.get('t1_hit') else ''}</div></div>
           </div>
-          <div class="reasons">Target 1: ₹{pos['t1']:.2f} · Target 2: ₹{pos['t2']:.2f} | Basis: {pos.get('calc_basis', 'Direct')}</div>
+          <div class="reasons">
+            🎯 Target 1: ₹{pos['t1']:.2f} &nbsp;|&nbsp; 🏁 Target 2: ₹{pos['t2']:.2f}<br>
+            🔒 Position is actively managed. Pullbacks while holding above SL do not invalidate your trade.
+          </div>
         </div>""", unsafe_allow_html=True)
-        if st.button("✖ Close Active Trade", use_container_width=True):
-            st.session_state.position = None
+        if st.button(f"✖ Square Off Position Manually ({inst})", use_container_width=True):
+            st.session_state.positions[sym] = None
             st.rerun()
 
-    elif pos is not None and pos.get('status') != 'open':
-        pnl_realized = (((pos['exit_price'] - pos['entry']) if pos['direction'] == 'BUY' else (pos['entry'] - pos['exit_price'])) * pos.get('delta', 1.0)) * pos['qty']
+    # STATE 3: Trade finished
+    elif pos is not None and pos.get('status') not in ['waiting_trigger', 'active']:
+        entry_price = pos.get('fill_price', pos['entry'])
+        pnl_realized = (((pos['exit_price'] - entry_price) if pos['direction'] == 'BUY' else (entry_price - pos['exit_price'])) * pos.get('delta', 1.0)) * pos['qty']
         col_r = 'cg' if pnl_realized >= 0 else 'cr'
         st.markdown(f"""<div class="card-locked">
-          <div style="display:flex;justify-content:space-between;"><b>🏁 Outcome: {pos['status']}</b><span class="ca">{pos['label']}</span></div>
-          <div class="tile"><span class="lbl">ESTIMATED REALIZED P&L</span><div class="val {col_r}">₹{pnl_realized:+,.2f}</div></div>
+          <div style="display:flex;justify-content:space-between;"><b>🏁 Completed Trade: {pos['status']}</b><span class="ca">{pos['label']}</span></div>
+          <div class="tile"><span class="lbl">FINAL REALIZED P&L</span><div class="val {col_r}">₹{pnl_realized:+,.2f}</div></div>
         </div>""", unsafe_allow_html=True)
-        if st.button("🔍 Scan for Next Setup", use_container_width=True, type="primary"):
-            st.session_state.position = None
+        if st.button("🔍 Clear & Scan for Next High-Confluence Setup", use_container_width=True, type="primary"):
+            st.session_state.positions[sym] = None
             st.rerun()
 
+    # STATE 4: Scanner running fresh confluence checks
     else:
-        # Fundamental Event Gating Check
         if is_stock and fund_data['earnings_block']:
             st.markdown(f"""<div class="card-blocked">
-              <b style="color:#ef4444;font-size:1.05rem;">🛑 RESULTS / EARNINGS HARD GATING ACTIVE</b>
-              <p style="margin:4px 0 0 0;font-size:0.84rem;color:#fecaca;">Corporate results/AGM are today or within 24h ({fund_data['days_to_earnings']}d away). Entries hard-blocked to avoid binary announcement gaps.</p>
+              <b style="color:#ef4444;font-size:1.05rem;">🛑 RESULTS / EARNINGS GATING ACTIVE</b>
+              <p style="margin:4px 0 0 0;font-size:0.84rem;color:#fecaca;">Company results/AGM are scheduled within 24h ({fund_data['days_to_earnings']}d away). New trades are hard-gated to avoid event volatility.</p>
             </div>""", unsafe_allow_html=True)
         else:
-            # Dynamic Available Pillars
             b_sc, be_sc = 0, 0
             b_reas, be_reas = [], []
             total_active_pillars = 0
 
-            # 1. EMA Ribbon (Active)
+            # 1. EMA Ribbon & Structure
             total_active_pillars += 2
             if curr['ema9'] > curr['ema21']: b_sc += 1; b_reas.append("EMA 9 > EMA 21 Bullish Stack")
             else: be_sc += 1; be_reas.append("EMA 9 < EMA 21 Bearish Stack")
 
-            if curr['close'] >= curr['ema50']: b_sc += 1; b_reas.append("Holding Above EMA 50 Baseline")
-            else: be_sc += 1; be_reas.append("Trading Below EMA 50 Baseline")
+            if curr['close'] >= curr['ema50']: b_sc += 1; b_reas.append("Price Above EMA 50 Structural Baseline")
+            else: be_sc += 1; be_reas.append("Price Below EMA 50 Structural Baseline")
 
-            # 2. RSI Momentum (Fixed: No Dead Zones)
+            # 2. RSI Momentum
             total_active_pillars += 2
             rsi_val = curr['rsi']
             if rsi_val >= 52:
                 b_sc += 1
-                b_reas.append(f"RSI ({rsi_val:.1f}) Bullish Momentum Zone" + (" (Strong Expansion)" if rsi_val >= 65 else ""))
+                b_reas.append(f"RSI ({rsi_val:.1f}) in Bullish Acceleration Zone" + (" (Momentum Expansion)" if rsi_val >= 62 else ""))
             elif rsi_val <= 48:
                 be_sc += 1
-                be_reas.append(f"RSI ({rsi_val:.1f}) Bearish Breakdown Zone" + (" (Oversold Flush)" if rsi_val <= 35 else ""))
+                be_reas.append(f"RSI ({rsi_val:.1f}) in Bearish Distribution Zone" + (" (Downside Expansion)" if rsi_val <= 38 else ""))
 
-            if rsi_val >= prev['rsi']: b_sc += 1; b_reas.append("RSI Rising (Momentum Accelerating)")
-            else: be_sc += 1; be_reas.append("RSI Falling (Momentum Fading)")
+            if rsi_val >= prev['rsi']: b_sc += 1; b_reas.append("RSI Slope Pointing Upward")
+            else: be_sc += 1; be_reas.append("RSI Slope Pointing Downward")
 
-            # 3. MACD Cross & Histogram Momentum
+            # 3. MACD Cross & Histogram Expansion
             total_active_pillars += 1
             if curr['macd'] >= curr['macd_signal'] and curr['macd_hist'] >= 0:
-                b_sc += 1; b_reas.append("MACD Bullish Alignment & Positive Histogram")
+                b_sc += 1; b_reas.append("MACD Bullish Cross with Expanding Histogram")
             elif curr['macd'] <= curr['macd_signal'] and curr['macd_hist'] <= 0:
-                be_sc += 1; be_reas.append("MACD Bearish Alignment & Negative Histogram")
+                be_sc += 1; be_reas.append("MACD Bearish Cross with Expanding Histogram")
 
             # 4. Supertrend
             total_active_pillars += 1
-            if curr['supertrend_dir'] == 1: b_sc += 1; b_reas.append("Supertrend (10,3) Bullish Cloud")
-            else: be_sc += 1; be_reas.append("Supertrend (10,3) Bearish Cloud")
+            if curr['supertrend_dir'] == 1: b_sc += 1; b_reas.append("Supertrend (10,3) Bullish Support")
+            else: be_sc += 1; be_reas.append("Supertrend (10,3) Bearish Resistance")
 
-            # 5. VWAP
+            # 5. Session VWAP
             total_active_pillars += 1
-            if curr['close'] >= vwap_val: b_sc += 1; b_reas.append("Price Holding Above Intraday VWAP")
-            else: be_sc += 1; be_reas.append("Price Below Intraday VWAP")
+            if curr['close'] >= vwap_val: b_sc += 1; b_reas.append("Holding Above Session-Resetted VWAP")
+            else: be_sc += 1; be_reas.append("Trading Below Session-Resetted VWAP")
 
-            # 6. Price Action & Candle Breakout (Fixed: Inside Bar Handling)
+            # 6. Bollinger Bands Momentum / Riding Bands
+            total_active_pillars += 1
+            if curr['close'] >= curr['bb_upper'] * 0.995:
+                b_sc += 1; b_reas.append("Riding Upper Bollinger Band (High Volatility Expansion)")
+            elif curr['close'] <= curr['bb_lower'] * 1.005:
+                be_sc += 1; be_reas.append("Riding Lower Bollinger Band (Downside Volatility Expansion)")
+
+            # 7. Price Action & Candle Structure
             total_active_pillars += 1
             if curr['close'] > prev['high']:
-                b_sc += 1; b_reas.append("Candle Closed Above Prior Candle High")
+                b_sc += 1; b_reas.append("Candle Closed Above Previous Candle High")
             elif curr['close'] < prev['low']:
-                be_sc += 1; be_reas.append("Candle Closed Below Prior Candle Low")
+                be_sc += 1; be_reas.append("Candle Closed Below Previous Candle Low")
             else:
-                if curr['close'] > curr['ema9']: b_sc += 1; b_reas.append("Inside Bar Consolidating Above Fast EMA 9")
-                elif curr['close'] < curr['ema9']: be_sc += 1; be_reas.append("Inside Bar Consolidating Below Fast EMA 9")
+                if curr['close'] > curr['ema9']: b_sc += 1; b_reas.append("Consolidation Holding EMA 9 Support")
+                elif curr['close'] < curr['ema9']: be_sc += 1; be_reas.append("Consolidation Holding EMA 9 Resistance")
 
-            # 7. Sentiment Confluence
+            # 8. Sentiment & Market Flow
             total_active_pillars += 1
-            if news_sc > 0: b_sc += 1; b_reas.append("Live News Feed Sentiment Bullish")
-            elif news_sc < 0: be_sc += 1; be_reas.append("Live News Feed Sentiment Bearish")
+            if news_sc > 0: b_sc += 1; b_reas.append("Scattered News Sentiment Positive")
+            elif news_sc < 0: be_sc += 1; be_reas.append("Scattered News Sentiment Negative")
 
             if is_stock:
                 total_active_pillars += 1
-                if nifty_pct >= 0.15: b_sc += 1; b_reas.append(f"Nifty Market Tailwind (+{nifty_pct:.2f}%)")
-                elif nifty_pct <= -0.15: be_sc += 1; be_reas.append(f"Nifty Market Headwind ({nifty_pct:.2f}%)")
+                if nifty_pct >= 0.15: b_sc += 1; b_reas.append(f"Nifty Directional Tailwind (+{nifty_pct:.2f}%)")
+                elif nifty_pct <= -0.15: be_sc += 1; be_reas.append(f"Nifty Directional Headwind ({nifty_pct:.2f}%)")
 
-            # 8. Dynamic Option Chain / OI Pillars (Only scored when OC is available)
+            # 9. Option Chain PCR & OI Buildup (When active)
             if oc:
                 total_active_pillars += 2
-                if oc['pcr'] >= 1.05 and live_p >= sup: b_sc += 1; b_reas.append(f"Option Chain PCR {oc['pcr']} Bullish")
-                elif oc['pcr'] <= 0.88 and live_p <= res: be_sc += 1; be_reas.append(f"Option Chain PCR {oc['pcr']} Bearish")
+                if oc['pcr'] >= 1.05 and live_p >= sup: b_sc += 1; b_reas.append(f"Option Chain PCR {oc['pcr']} Bullish Support")
+                elif oc['pcr'] <= 0.88 and live_p <= res: be_sc += 1; be_reas.append(f"Option Chain PCR {oc['pcr']} Bearish Resistance")
 
                 now_ist = datetime.now(IST)
                 st.session_state.oi_log.append({"t": now_ist, "tce": oc.get('tce', 0), "tpe": oc.get('tpe', 0), "price": live_p})
@@ -515,122 +586,68 @@ if df is not None and len(df) > 20:
                     if p_chg > 0 and oi_chg > 0: b_sc += 1; b_reas.append("OI Buildup Confirms Fresh Institutional Longs")
                     elif p_chg < 0 and oi_chg > 0: be_sc += 1; be_reas.append("OI Buildup Confirms Fresh Institutional Shorts")
 
-            # Adaptive Threshold: Need ~60% of available pillars
-            needed_score = max(4, int(np.ceil(total_active_pillars * 0.60)))
+            needed_score = max(5, int(np.ceil(total_active_pillars * 0.62)))
             def stars(sc, total=total_active_pillars): return "★" * min(sc, total) + "☆" * max(0, total - sc)
 
-            is_long_sig = b_sc >= needed_score and adx_val >= 18
-            is_short_sig = be_sc >= needed_score and b_sc < needed_score and adx_val >= 18
+            is_long_setup = b_sc >= needed_score and adx_val >= 18
+            is_short_setup = be_sc >= needed_score and b_sc < needed_score and adx_val >= 18
 
-            if is_long_sig:
-                entry = round(max(curr['high'] + (0.15 * atr_val), live_p + 0.1), 2)
-                sl = round(max(sup, entry - (1.3 * atr_val)), 2)
+            if is_long_setup:
+                buffer = round(max(0.15 * atr_val, 0.10), 2)
+                entry = round(curr['high'] + buffer, 2)
+                sl = round(max(sup, entry - (1.4 * atr_val)), 2)
                 risk_pts = round(max(entry - sl, atr_val * 0.8), 2)
-                t1, t2 = round(entry + risk_pts, 2), round(entry + (2 * risk_pts), 2)
+                t1, t2 = round(entry + (1.2 * risk_pts), 2), round(entry + (2.2 * risk_pts), 2)
 
                 if is_stock:
                     qty = max(1, int((trading_capital * 0.01) / risk_pts))
-                    label = f"INTRADAY BUY: {inst} (CASH/FUT)"
-                    basis = "1:1 Real Cash Movement"
+                    label = f"INTRADAY BUY: {inst}"
                     calc_delta = 1.0
                 else:
                     strike = int(round(live_p / step_k) * step_k)
                     qty = lot_sz
-                    label = f"BUY {strike} CALL (CE)"
-                    basis = "Spot-based levels (~0.52 ATM Delta)"
+                    label = f"BUY {strike} CE"
                     calc_delta = delta_approx
 
-                st.session_state.position = {
+                st.session_state.positions[sym] = {
                     "direction": "BUY", "label": label, "entry": entry, "sl": sl,
-                    "t1": t1, "t2": t2, "qty": qty, "status": "open", "t1_hit": False,
-                    "delta": calc_delta, "calc_basis": basis
+                    "t1": t1, "t2": t2, "qty": qty, "status": "waiting_trigger",
+                    "t1_hit": False, "delta": calc_delta,
+                    "setup_time": datetime.now(IST).strftime("%I:%M %p")
                 }
+                st.rerun()
 
-                st.markdown(f"""<div class="card-buy">
-                  <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 CONFLUENCE BUY SIGNAL: {label}</b><span class="ca">{stars(b_sc)} ({b_sc}/{total_active_pillars})</span></div>
-                  <div class="g2">
-                    <div class="tile"><span class="lbl">TRIGGER (SPOT)</span><div class="val cb">Buy Above ₹{entry:.2f}</div></div>
-                    <div class="tile"><span class="lbl">STOP LOSS (SPOT)</span><div class="val cr">₹{sl:.2f} (-₹{risk_pts:.2f})</div></div>
-                  </div>
-                  <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-                    <div class="rw"><span>🎯 Target 1 (50% Offload):</span><b class="cg">₹{t1:.2f} (+₹{risk_pts:.2f})</b></div>
-                    <div class="rw"><span>🏁 Target 2 (Runner):</span><b class="cg">₹{t2:.2f} (+₹{2*risk_pts:.2f})</b></div>
-                    <div class="rw"><span>Recommended Size:</span><b class="ca">{qty} Qty (Max Risk: ~₹{risk_pts * calc_delta * qty:,.0f})</b></div>
-                    <div class="rw"><span>P&L Basis:</span><b class="cb">{basis}</b></div>
-                  </div>
-                  <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(b_reas)}</div>
-                </div>""", unsafe_allow_html=True)
-
-            elif is_short_sig:
-                entry = round(min(curr['low'] - (0.15 * atr_val), live_p - 0.1), 2)
-                sl = round(min(res, entry + (1.3 * atr_val)), 2)
+            elif is_short_setup:
+                buffer = round(max(0.15 * atr_val, 0.10), 2)
+                entry = round(curr['low'] - buffer, 2)
+                sl = round(min(res, entry + (1.4 * atr_val)), 2)
                 risk_pts = round(max(sl - entry, atr_val * 0.8), 2)
-                t1, t2 = round(entry - risk_pts, 2), round(entry - (2 * risk_pts), 2)
+                t1, t2 = round(entry - (1.2 * risk_pts), 2), round(entry - (2.2 * risk_pts), 2)
 
                 if is_stock:
                     qty = max(1, int((trading_capital * 0.01) / risk_pts))
-                    label = f"INTRADAY SHORT: {inst} (CASH/FUT)"
-                    basis = "1:1 Real Cash Movement"
+                    label = f"INTRADAY SHORT: {inst}"
                     calc_delta = 1.0
                 else:
                     strike = int(round(live_p / step_k) * step_k)
                     qty = lot_sz
-                    label = f"BUY {strike} PUT (PE)"
-                    basis = "Spot-based levels (~0.52 ATM Delta)"
+                    label = f"BUY {strike} PE"
                     calc_delta = delta_approx
 
-                st.session_state.position = {
+                st.session_state.positions[sym] = {
                     "direction": "SELL", "label": label, "entry": entry, "sl": sl,
-                    "t1": t1, "t2": t2, "qty": qty, "status": "open", "t1_hit": False,
-                    "delta": calc_delta, "calc_basis": basis
+                    "t1": t1, "t2": t2, "qty": qty, "status": "waiting_trigger",
+                    "t1_hit": False, "delta": calc_delta,
+                    "setup_time": datetime.now(IST).strftime("%I:%M %p")
                 }
-
-                st.markdown(f"""<div class="card-sell">
-                  <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 CONFLUENCE SHORT SIGNAL: {label}</b><span class="ca">{stars(be_sc)} ({be_sc}/{total_active_pillars})</span></div>
-                  <div class="g2">
-                    <div class="tile"><span class="lbl">TRIGGER (SPOT BREAKDOWN)</span><div class="val cb">Buy PE Below Spot ₹{entry:.2f}</div></div>
-                    <div class="tile"><span class="lbl">STOP LOSS (SPOT)</span><div class="val cr">₹{sl:.2f} (-₹{risk_pts:.2f})</div></div>
-                  </div>
-                  <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-                    <div class="rw"><span>🎯 Target 1 (50% Offload):</span><b class="cg">₹{t1:.2f} (+₹{risk_pts:.2f})</b></div>
-                    <div class="rw"><span>🏁 Target 2 (Runner):</span><b class="cg">₹{t2:.2f} (+₹{2*risk_pts:.2f})</b></div>
-                    <div class="rw"><span>Recommended Size:</span><b class="ca">{qty} Qty (Max Risk: ~₹{risk_pts * calc_delta * qty:,.0f})</b></div>
-                    <div class="rw"><span>P&L Basis:</span><b class="cb">{basis}</b></div>
-                  </div>
-                  <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(be_reas)}</div>
-                </div>""", unsafe_allow_html=True)
+                st.rerun()
 
             else:
                 top_sc = max(b_sc, be_sc)
                 st.markdown(f"""<div class="card-no">
-                  <div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ WAITING FOR CLEAR CONFLUENCE</b><span class="ca">{stars(top_sc)} ({top_sc}/{total_active_pillars})</span></div>
+                  <div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ SCANNING CONFLUENCE CRITERIA</b><span class="ca">{stars(top_sc)} ({top_sc}/{total_active_pillars})</span></div>
                   <p style="margin:4px 0 0 0;font-size:0.84rem;">Score: {top_sc}/{total_active_pillars} (Requires ≥ {needed_score} with ADX ≥ 18). Support: ₹{sup:.1f} | Resistance: ₹{res:.1f}.</p>
                 </div>""", unsafe_allow_html=True)
-
-    # ---------- CHARTING ----------
-    st.markdown("#### 📈 Multi-Indicator Technical Chart")
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.58, 0.22, 0.20])
-    sub = df.tail(50)
-
-    fig.add_trace(go.Candlestick(x=sub['time'], open=sub['open'], high=sub['high'], low=sub['low'], close=sub['close'], increasing_line_color='#10b981', decreasing_line_color='#f43f5e', name="Price"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=sub['time'], y=sub['ema9'], line=dict(color='#38bdf8', width=1.2), name="EMA 9"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=sub['time'], y=sub['ema21'], line=dict(color='#f59e0b', width=1.2), name="EMA 21"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=sub['time'], y=sub['vwap'], line=dict(color='#c084fc', width=1.4, dash="dot"), name="VWAP"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=sub['time'], y=sub['supertrend'], line=dict(color='#10b981' if curr['supertrend_dir']==1 else '#f43f5e', width=1.4), name="Supertrend"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=sub['time'], y=sub['bb_upper'], line=dict(color='rgba(148,163,184,0.3)', width=1), name="BB Upper"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=sub['time'], y=sub['bb_lower'], line=dict(color='rgba(148,163,184,0.3)', width=1), name="BB Lower"), row=1, col=1)
-
-    hist_cols = ['#10b981' if val >= 0 else '#f43f5e' for val in sub['macd_hist']]
-    fig.add_trace(go.Bar(x=sub['time'], y=sub['macd_hist'], marker_color=hist_cols, name="MACD Hist"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=sub['time'], y=sub['macd'], line=dict(color='#38bdf8', width=1.2), name="MACD"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=sub['time'], y=sub['macd_signal'], line=dict(color='#f59e0b', width=1.2), name="Signal"), row=2, col=1)
-
-    fig.add_trace(go.Scatter(x=sub['time'], y=sub['rsi'], line=dict(color='#c084fc', width=1.3), name="RSI"), row=3, col=1)
-    fig.add_hline(y=70, line_dash="dot", line_color="#f43f5e", row=3, col=1)
-    fig.add_hline(y=30, line_dash="dot", line_color="#10b981", row=3, col=1)
-
-    fig.update_layout(height=540, margin=dict(l=5, r=5, t=10, b=10), xaxis_rangeslider_visible=False, template="plotly_dark", paper_bgcolor="#07090e", plot_bgcolor="#07090e", showlegend=False)
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 else:
     st.info("Awaiting live stream data. Click '🔄 Sync Now' above or upload a CSV file.")
