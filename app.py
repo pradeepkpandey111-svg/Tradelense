@@ -366,4 +366,271 @@ if df is not None and len(df) > 20:
     dist_52h = ((h52 - live_p) / h52) * 100
     dist_52l = ((live_p - l52) / l52) * 100
 
-    oc_badge = f"<span class='cg'>● {oc['src']} (PCR: {oc['pc
+    oc_badge = f"<span class='cg'>● {oc['src']} (PCR: {oc['pcr']})</span>" if oc else "<span class='ca'>● Dynamic Pivot (No Live Chain)</span>"
+
+    # Spot & Metric Bar
+    st.markdown(f"""<div class="tile" style="margin-bottom:8px;">
+    <div style="display:flex;justify-content:space-between;"><span class="lbl">{inst} SPOT</span><span class="lbl">{oc_badge}</span></div>
+    <div class="val cb" style="font-size:1.35rem;">₹{live_p:,.2f}</div>
+    <div class="g4">
+      <div class="tile"><span class="lbl">SUPPORT</span><div class="val cg">₹{sup:,.1f}</div></div>
+      <div class="tile"><span class="lbl">RESISTANCE</span><div class="val cr">₹{res:,.1f}</div></div>
+      <div class="tile"><span class="lbl">DAY HIGH</span><div class="val cg">₹{day_high:,.1f}</div></div>
+      <div class="tile"><span class="lbl">DAY LOW</span><div class="val cr">₹{day_low:,.1f}</div></div>
+    </div>
+    <div class="g3" style="margin-top:4px;">
+      <div class="tile"><span class="lbl">ADX TREND</span><div class="val {'cg' if adx_val>=18 else 'ca'}">{adx_val:.1f} ({'Trending' if adx_val>=18 else 'Choppy'})</div></div>
+      <div class="tile"><span class="lbl">VWAP BIAS</span><div class="val {'cg' if live_p>=vwap_val else 'cr'}">{'Above' if live_p>=vwap_val else 'Below'} (₹{vwap_val:.1f})</div></div>
+      <div class="tile"><span class="lbl">52W RANGE</span><div class="val ca">-{dist_52h:.1f}% / +{dist_52l:.1f}%</div></div>
+    </div>
+    </div>""", unsafe_allow_html=True)
+
+    # ---------- EXECUTION ENGINE WITH ADAPTIVE SCORING ----------
+    st.markdown("#### 🎯 Execution Setup")
+    pos = st.session_state.position
+
+    # 1. Position Tracking
+    if pos is not None and pos.get('status') == 'open':
+        is_long = pos['direction'] == 'BUY'
+        pnl_spot_pts = (live_p - pos['entry']) if is_long else (pos['entry'] - live_p)
+
+        if (is_long and live_p <= pos['sl']) or (not is_long and live_p >= pos['sl']):
+            pos['status'] = 'SL Hit'; pos['exit_price'] = pos['sl']
+        elif (is_long and live_p >= pos['t2']) or (not is_long and live_p <= pos['t2']):
+            pos['status'] = 'Target 2 Hit'; pos['exit_price'] = pos['t2']
+        elif ((is_long and live_p >= pos['t1']) or (not is_long and live_p <= pos['t1'])) and not pos.get('t1_hit'):
+            pos['t1_hit'] = True; pos['sl'] = pos['entry']
+
+        st.session_state.position = pos
+        approx_pts = pnl_spot_pts * pos.get('delta', 1.0)
+        pnl_cash = approx_pts * pos['qty']
+        col_pnl = 'cg' if pnl_spot_pts >= 0 else 'cr'
+
+        st.markdown(f"""<div class="card-locked">
+          <div style="display:flex;justify-content:space-between;"><b style="font-size:1.1rem;">📌 LIVE TRADE: {pos['label']}</b><span class="ca">Entry ₹{pos['entry']:.2f}</span></div>
+          <div class="g2">
+            <div class="tile"><span class="lbl">EST. P&L ({pos['qty']} QTY)</span><div class="val {col_pnl}">{pnl_spot_pts:+.2f} pts spot (₹{pnl_cash:+,.2f})</div></div>
+            <div class="tile"><span class="lbl">ACTIVE SL</span><div class="val ca">₹{pos['sl']:.2f}{' · Trailed to Cost' if pos.get('t1_hit') else ''}</div></div>
+          </div>
+          <div class="reasons">Target 1: ₹{pos['t1']:.2f} · Target 2: ₹{pos['t2']:.2f} | Basis: {pos.get('calc_basis', 'Direct')}</div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("✖ Close Active Trade", use_container_width=True):
+            st.session_state.position = None
+            st.rerun()
+
+    elif pos is not None and pos.get('status') != 'open':
+        pnl_realized = (((pos['exit_price'] - pos['entry']) if pos['direction'] == 'BUY' else (pos['entry'] - pos['exit_price'])) * pos.get('delta', 1.0)) * pos['qty']
+        col_r = 'cg' if pnl_realized >= 0 else 'cr'
+        st.markdown(f"""<div class="card-locked">
+          <div style="display:flex;justify-content:space-between;"><b>🏁 Outcome: {pos['status']}</b><span class="ca">{pos['label']}</span></div>
+          <div class="tile"><span class="lbl">ESTIMATED REALIZED P&L</span><div class="val {col_r}">₹{pnl_realized:+,.2f}</div></div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("🔍 Scan for Next Setup", use_container_width=True, type="primary"):
+            st.session_state.position = None
+            st.rerun()
+
+    else:
+        # Fundamental Event Gating Check
+        if is_stock and fund_data['earnings_block']:
+            st.markdown(f"""<div class="card-blocked">
+              <b style="color:#ef4444;font-size:1.05rem;">🛑 RESULTS / EARNINGS HARD GATING ACTIVE</b>
+              <p style="margin:4px 0 0 0;font-size:0.84rem;color:#fecaca;">Corporate results/AGM are today or within 24h ({fund_data['days_to_earnings']}d away). Entries hard-blocked to avoid binary announcement gaps.</p>
+            </div>""", unsafe_allow_html=True)
+        else:
+            # Dynamic Available Pillars
+            b_sc, be_sc = 0, 0
+            b_reas, be_reas = [], []
+            total_active_pillars = 0
+
+            # 1. EMA Ribbon (Active)
+            total_active_pillars += 2
+            if curr['ema9'] > curr['ema21']: b_sc += 1; b_reas.append("EMA 9 > EMA 21 Bullish Stack")
+            else: be_sc += 1; be_reas.append("EMA 9 < EMA 21 Bearish Stack")
+
+            if curr['close'] >= curr['ema50']: b_sc += 1; b_reas.append("Holding Above EMA 50 Baseline")
+            else: be_sc += 1; be_reas.append("Trading Below EMA 50 Baseline")
+
+            # 2. RSI Momentum (Fixed: No Dead Zones)
+            total_active_pillars += 2
+            rsi_val = curr['rsi']
+            if rsi_val >= 52:
+                b_sc += 1
+                b_reas.append(f"RSI ({rsi_val:.1f}) Bullish Momentum Zone" + (" (Strong Expansion)" if rsi_val >= 65 else ""))
+            elif rsi_val <= 48:
+                be_sc += 1
+                be_reas.append(f"RSI ({rsi_val:.1f}) Bearish Breakdown Zone" + (" (Oversold Flush)" if rsi_val <= 35 else ""))
+
+            if rsi_val >= prev['rsi']: b_sc += 1; b_reas.append("RSI Rising (Momentum Accelerating)")
+            else: be_sc += 1; be_reas.append("RSI Falling (Momentum Fading)")
+
+            # 3. MACD Cross & Histogram Momentum
+            total_active_pillars += 1
+            if curr['macd'] >= curr['macd_signal'] and curr['macd_hist'] >= 0:
+                b_sc += 1; b_reas.append("MACD Bullish Alignment & Positive Histogram")
+            elif curr['macd'] <= curr['macd_signal'] and curr['macd_hist'] <= 0:
+                be_sc += 1; be_reas.append("MACD Bearish Alignment & Negative Histogram")
+
+            # 4. Supertrend
+            total_active_pillars += 1
+            if curr['supertrend_dir'] == 1: b_sc += 1; b_reas.append("Supertrend (10,3) Bullish Cloud")
+            else: be_sc += 1; be_reas.append("Supertrend (10,3) Bearish Cloud")
+
+            # 5. VWAP
+            total_active_pillars += 1
+            if curr['close'] >= vwap_val: b_sc += 1; b_reas.append("Price Holding Above Intraday VWAP")
+            else: be_sc += 1; be_reas.append("Price Below Intraday VWAP")
+
+            # 6. Price Action & Candle Breakout (Fixed: Inside Bar Handling)
+            total_active_pillars += 1
+            if curr['close'] > prev['high']:
+                b_sc += 1; b_reas.append("Candle Closed Above Prior Candle High")
+            elif curr['close'] < prev['low']:
+                be_sc += 1; be_reas.append("Candle Closed Below Prior Candle Low")
+            else:
+                if curr['close'] > curr['ema9']: b_sc += 1; b_reas.append("Inside Bar Consolidating Above Fast EMA 9")
+                elif curr['close'] < curr['ema9']: be_sc += 1; be_reas.append("Inside Bar Consolidating Below Fast EMA 9")
+
+            # 7. Sentiment Confluence
+            total_active_pillars += 1
+            if news_sc > 0: b_sc += 1; b_reas.append("Live News Feed Sentiment Bullish")
+            elif news_sc < 0: be_sc += 1; be_reas.append("Live News Feed Sentiment Bearish")
+
+            if is_stock:
+                total_active_pillars += 1
+                if nifty_pct >= 0.15: b_sc += 1; b_reas.append(f"Nifty Market Tailwind (+{nifty_pct:.2f}%)")
+                elif nifty_pct <= -0.15: be_sc += 1; be_reas.append(f"Nifty Market Headwind ({nifty_pct:.2f}%)")
+
+            # 8. Dynamic Option Chain / OI Pillars (Only scored when OC is available)
+            if oc:
+                total_active_pillars += 2
+                if oc['pcr'] >= 1.05 and live_p >= sup: b_sc += 1; b_reas.append(f"Option Chain PCR {oc['pcr']} Bullish")
+                elif oc['pcr'] <= 0.88 and live_p <= res: be_sc += 1; be_reas.append(f"Option Chain PCR {oc['pcr']} Bearish")
+
+                now_ist = datetime.now(IST)
+                st.session_state.oi_log.append({"t": now_ist, "tce": oc.get('tce', 0), "tpe": oc.get('tpe', 0), "price": live_p})
+                st.session_state.oi_log = [x for x in st.session_state.oi_log if (now_ist - x['t']).total_seconds() <= 600][-40:]
+                if len(st.session_state.oi_log) >= 2:
+                    p_chg = st.session_state.oi_log[-1]['price'] - st.session_state.oi_log[0]['price']
+                    oi_chg = (st.session_state.oi_log[-1]['tce'] + st.session_state.oi_log[-1]['tpe']) - (st.session_state.oi_log[0]['tce'] + st.session_state.oi_log[0]['tpe'])
+                    if p_chg > 0 and oi_chg > 0: b_sc += 1; b_reas.append("OI Buildup Confirms Fresh Institutional Longs")
+                    elif p_chg < 0 and oi_chg > 0: be_sc += 1; be_reas.append("OI Buildup Confirms Fresh Institutional Shorts")
+
+            # Adaptive Threshold: Need ~60% of available pillars
+            needed_score = max(4, int(np.ceil(total_active_pillars * 0.60)))
+            def stars(sc, total=total_active_pillars): return "★" * min(sc, total) + "☆" * max(0, total - sc)
+
+            is_long_sig = b_sc >= needed_score and adx_val >= 18
+            is_short_sig = be_sc >= needed_score and b_sc < needed_score and adx_val >= 18
+
+            if is_long_sig:
+                entry = round(max(curr['high'] + (0.15 * atr_val), live_p + 0.1), 2)
+                sl = round(max(sup, entry - (1.3 * atr_val)), 2)
+                risk_pts = round(max(entry - sl, atr_val * 0.8), 2)
+                t1, t2 = round(entry + risk_pts, 2), round(entry + (2 * risk_pts), 2)
+
+                if is_stock:
+                    qty = max(1, int((trading_capital * 0.01) / risk_pts))
+                    label = f"INTRADAY BUY: {inst} (CASH/FUT)"
+                    basis = "1:1 Real Cash Movement"
+                    calc_delta = 1.0
+                else:
+                    strike = int(round(live_p / step_k) * step_k)
+                    qty = lot_sz
+                    label = f"BUY {strike} CALL (CE)"
+                    basis = "Spot-based levels (~0.52 ATM Delta)"
+                    calc_delta = delta_approx
+
+                st.session_state.position = {
+                    "direction": "BUY", "label": label, "entry": entry, "sl": sl,
+                    "t1": t1, "t2": t2, "qty": qty, "status": "open", "t1_hit": False,
+                    "delta": calc_delta, "calc_basis": basis
+                }
+
+                st.markdown(f"""<div class="card-buy">
+                  <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 CONFLUENCE BUY SIGNAL: {label}</b><span class="ca">{stars(b_sc)} ({b_sc}/{total_active_pillars})</span></div>
+                  <div class="g2">
+                    <div class="tile"><span class="lbl">TRIGGER (SPOT)</span><div class="val cb">Buy Above ₹{entry:.2f}</div></div>
+                    <div class="tile"><span class="lbl">STOP LOSS (SPOT)</span><div class="val cr">₹{sl:.2f} (-₹{risk_pts:.2f})</div></div>
+                  </div>
+                  <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
+                    <div class="rw"><span>🎯 Target 1 (50% Offload):</span><b class="cg">₹{t1:.2f} (+₹{risk_pts:.2f})</b></div>
+                    <div class="rw"><span>🏁 Target 2 (Runner):</span><b class="cg">₹{t2:.2f} (+₹{2*risk_pts:.2f})</b></div>
+                    <div class="rw"><span>Recommended Size:</span><b class="ca">{qty} Qty (Max Risk: ~₹{risk_pts * calc_delta * qty:,.0f})</b></div>
+                    <div class="rw"><span>P&L Basis:</span><b class="cb">{basis}</b></div>
+                  </div>
+                  <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(b_reas)}</div>
+                </div>""", unsafe_allow_html=True)
+
+            elif is_short_sig:
+                entry = round(min(curr['low'] - (0.15 * atr_val), live_p - 0.1), 2)
+                sl = round(min(res, entry + (1.3 * atr_val)), 2)
+                risk_pts = round(max(sl - entry, atr_val * 0.8), 2)
+                t1, t2 = round(entry - risk_pts, 2), round(entry - (2 * risk_pts), 2)
+
+                if is_stock:
+                    qty = max(1, int((trading_capital * 0.01) / risk_pts))
+                    label = f"INTRADAY SHORT: {inst} (CASH/FUT)"
+                    basis = "1:1 Real Cash Movement"
+                    calc_delta = 1.0
+                else:
+                    strike = int(round(live_p / step_k) * step_k)
+                    qty = lot_sz
+                    label = f"BUY {strike} PUT (PE)"
+                    basis = "Spot-based levels (~0.52 ATM Delta)"
+                    calc_delta = delta_approx
+
+                st.session_state.position = {
+                    "direction": "SELL", "label": label, "entry": entry, "sl": sl,
+                    "t1": t1, "t2": t2, "qty": qty, "status": "open", "t1_hit": False,
+                    "delta": calc_delta, "calc_basis": basis
+                }
+
+                st.markdown(f"""<div class="card-sell">
+                  <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 CONFLUENCE SHORT SIGNAL: {label}</b><span class="ca">{stars(be_sc)} ({be_sc}/{total_active_pillars})</span></div>
+                  <div class="g2">
+                    <div class="tile"><span class="lbl">TRIGGER (SPOT BREAKDOWN)</span><div class="val cb">Buy PE Below Spot ₹{entry:.2f}</div></div>
+                    <div class="tile"><span class="lbl">STOP LOSS (SPOT)</span><div class="val cr">₹{sl:.2f} (-₹{risk_pts:.2f})</div></div>
+                  </div>
+                  <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
+                    <div class="rw"><span>🎯 Target 1 (50% Offload):</span><b class="cg">₹{t1:.2f} (+₹{risk_pts:.2f})</b></div>
+                    <div class="rw"><span>🏁 Target 2 (Runner):</span><b class="cg">₹{t2:.2f} (+₹{2*risk_pts:.2f})</b></div>
+                    <div class="rw"><span>Recommended Size:</span><b class="ca">{qty} Qty (Max Risk: ~₹{risk_pts * calc_delta * qty:,.0f})</b></div>
+                    <div class="rw"><span>P&L Basis:</span><b class="cb">{basis}</b></div>
+                  </div>
+                  <div class="reasons"><span>CONFIRMING PILLARS:</span><br>• {'<br>• '.join(be_reas)}</div>
+                </div>""", unsafe_allow_html=True)
+
+            else:
+                top_sc = max(b_sc, be_sc)
+                st.markdown(f"""<div class="card-no">
+                  <div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ WAITING FOR CLEAR CONFLUENCE</b><span class="ca">{stars(top_sc)} ({top_sc}/{total_active_pillars})</span></div>
+                  <p style="margin:4px 0 0 0;font-size:0.84rem;">Score: {top_sc}/{total_active_pillars} (Requires ≥ {needed_score} with ADX ≥ 18). Support: ₹{sup:.1f} | Resistance: ₹{res:.1f}.</p>
+                </div>""", unsafe_allow_html=True)
+
+    # ---------- CHARTING ----------
+    st.markdown("#### 📈 Multi-Indicator Technical Chart")
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.58, 0.22, 0.20])
+    sub = df.tail(50)
+
+    fig.add_trace(go.Candlestick(x=sub['time'], open=sub['open'], high=sub['high'], low=sub['low'], close=sub['close'], increasing_line_color='#10b981', decreasing_line_color='#f43f5e', name="Price"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=sub['time'], y=sub['ema9'], line=dict(color='#38bdf8', width=1.2), name="EMA 9"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=sub['time'], y=sub['ema21'], line=dict(color='#f59e0b', width=1.2), name="EMA 21"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=sub['time'], y=sub['vwap'], line=dict(color='#c084fc', width=1.4, dash="dot"), name="VWAP"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=sub['time'], y=sub['supertrend'], line=dict(color='#10b981' if curr['supertrend_dir']==1 else '#f43f5e', width=1.4), name="Supertrend"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=sub['time'], y=sub['bb_upper'], line=dict(color='rgba(148,163,184,0.3)', width=1), name="BB Upper"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=sub['time'], y=sub['bb_lower'], line=dict(color='rgba(148,163,184,0.3)', width=1), name="BB Lower"), row=1, col=1)
+
+    hist_cols = ['#10b981' if val >= 0 else '#f43f5e' for val in sub['macd_hist']]
+    fig.add_trace(go.Bar(x=sub['time'], y=sub['macd_hist'], marker_color=hist_cols, name="MACD Hist"), row=2, col=1)
+    fig.add_trace(go.Scatter(x=sub['time'], y=sub['macd'], line=dict(color='#38bdf8', width=1.2), name="MACD"), row=2, col=1)
+    fig.add_trace(go.Scatter(x=sub['time'], y=sub['macd_signal'], line=dict(color='#f59e0b', width=1.2), name="Signal"), row=2, col=1)
+
+    fig.add_trace(go.Scatter(x=sub['time'], y=sub['rsi'], line=dict(color='#c084fc', width=1.3), name="RSI"), row=3, col=1)
+    fig.add_hline(y=70, line_dash="dot", line_color="#f43f5e", row=3, col=1)
+    fig.add_hline(y=30, line_dash="dot", line_color="#10b981", row=3, col=1)
+
+    fig.update_layout(height=540, margin=dict(l=5, r=5, t=10, b=10), xaxis_rangeslider_visible=False, template="plotly_dark", paper_bgcolor="#07090e", plot_bgcolor="#07090e", showlegend=False)
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+else:
+    st.info("Awaiting live stream data. Click '🔄 Sync Now' above or upload a CSV file.")
