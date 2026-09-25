@@ -28,7 +28,7 @@ html,body,[class*="css"],.stMarkdown{font-family:'Plus Jakarta Sans',sans-serif!
 </style>
 <div class="banner">
   <div style="font-size:1.3rem;font-weight:800;">⚡ TradeLense AI Terminal</div>
-  <div style="font-size:0.75rem;color:#94a3b8;">Institutional Confluence Engine — Verified Setup & Level Calculation</div>
+  <div style="font-size:0.75rem;color:#94a3b8;">Nifty 50 Complete Universe & Custom Ticker Search</div>
 </div>""", unsafe_allow_html=True)
 
 if "positions" not in st.session_state:
@@ -37,7 +37,15 @@ if "positions" not in st.session_state:
 col_tab1, col_tab2 = st.columns([1, 1.2])
 asset_tab = col_tab1.radio("Trading Module", ["Option Indices", "Shares"], horizontal=True)
 
-POPULAR_STOCKS = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS", "TATAMOTORS.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "LT.NS"]
+NIFTY_50_STOCKS = [
+    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "BHARTIARTL", "INFY", "ITC", "LT",
+    "SBIN", "HINDUNILVR", "TATAMOTORS", "BAJFINANCE", "MARUTI", "SUNPHARMA", "AXISBANK",
+    "KOTAKBANK", "NTPC", "TITAN", "ONGC", "M&M", "ADANIENT", "POWERGRID", "TATASTEEL",
+    "COALINDIA", "BAJAJFINSV", "ASIANPAINT", "HCLTECH", "ADANIPORTS", "WIPRO", "NESTLEIND",
+    "ULTRACEMCO", "GRASIM", "JSWSTEEL", "TECHM", "BPCL", "HEROMOTOCO", "EICHERMOT",
+    "DRREDDY", "CIPLA", "INDUSINDBK", "SBILIFE", "BRITANNIA", "HDFCLIFE", "DIVISLAB",
+    "APOLLOHOSP", "TATACONSUM", "BAJAJ-AUTO", "LTIM", "HINDALCO", "SHRIRAMFIN", "🔍 Search / Custom Ticker"
+]
 
 if asset_tab == "Option Indices":
     inst = col_tab2.selectbox("Target Index", ["NIFTY 50", "BANK NIFTY"])
@@ -46,8 +54,14 @@ if asset_tab == "Option Indices":
     step_k, lot_sz, delta_approx = (50, 50, 0.52) if inst == "NIFTY 50" else (100, 15, 0.52)
     is_stock = False
 else:
-    pick = col_tab2.selectbox("Select Share", POPULAR_STOCKS)
-    sym, inst = pick, pick.replace(".NS", "")
+    pick = col_tab2.selectbox("Select Share (Nifty 50)", NIFTY_50_STOCKS)
+    if pick == "🔍 Search / Custom Ticker":
+        custom_input = st.text_input("Enter NSE Stock Symbol (e.g. ZOMATO, TRENT)", value="ZOMATO").strip().upper()
+        inst = custom_input
+        sym = f"{custom_input}.NS" if not custom_input.endswith(".NS") else custom_input
+    else:
+        inst = pick
+        sym = f"{pick}.NS"
     nse_sym = inst
     step_k, lot_sz, delta_approx = 1, 1, 1.0
     is_stock = True
@@ -60,7 +74,6 @@ trading_capital = st.number_input("Account Capital (₹)", value=100000, step=25
 if auto_on:
     st_autorefresh(interval=15000, key="desk_refresh_sync")
 
-# Market Session Check
 now_ist = datetime.now(IST)
 m_mins = now_ist.hour * 60 + now_ist.minute
 is_market_open = (9 * 60 + 15) <= m_mins <= (15 * 60 + 30)
@@ -88,24 +101,20 @@ if df is not None and len(df) > 20:
     vol_col = next((x for x in df.columns if 'volume' in x), None)
     df['volume'] = pd.to_numeric(df[vol_col], errors='coerce').fillna(0) if vol_col else 0
 
-    # Indicators
     df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
     df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
     df['ema50'] = df['close'].ewm(span=50, adjust=False).mean()
 
-    # RSI
     delta = df['close'].diff()
     up = delta.clip(lower=0).rolling(14).mean()
     down = -delta.clip(upper=0).rolling(14).mean().replace(0, np.nan)
     df['rsi'] = (100 - (100 / (1 + (up / down)))).fillna(50)
 
-    # MACD
     e12, e26 = df['close'].ewm(span=12, adjust=False).mean(), df['close'].ewm(span=26, adjust=False).mean()
     df['macd'] = e12 - e26
     df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
     df['macd_hist'] = df['macd'] - df['macd_signal']
 
-    # ATR & Supertrend
     tr = pd.concat([df['high'] - df['low'], (df['high'] - df['close'].shift()).abs(), (df['low'] - df['close'].shift()).abs()], axis=1).max(axis=1)
     df['atr'] = tr.rolling(14).mean().bfill()
     hl2 = (df['high'] + df['low']) / 2
@@ -117,7 +126,6 @@ if df is not None and len(df) > 20:
         else: st_dir[i] = st_dir[i-1]
     df['supertrend_dir'] = st_dir
 
-    # Safe Session VWAP
     if df['volume'].sum() > 0:
         df['date_grp'] = df['time'].dt.date
         df['pv'] = (df['high'] + df['low'] + df['close']) / 3 * df['volume']
@@ -126,7 +134,6 @@ if df is not None and len(df) > 20:
     else:
         df['vwap'] = ((df['high'] + df['low'] + df['close']) / 3).ewm(span=20, adjust=False).mean()
 
-    # ADX
     up_m, dn_m = df['high'].diff(), -df['low'].diff()
     p_dm = np.where((up_m > dn_m) & (up_m > 0), up_m, 0.0)
     m_dm = np.where((dn_m > up_m) & (dn_m > 0), dn_m, 0.0)
@@ -142,11 +149,9 @@ if df is not None and len(df) > 20:
     vwap_val = float(curr['vwap'])
     adx_val = float(curr['adx'])
 
-    # Strict Support & Resistance (Support MUST be strictly below Spot, Resistance strictly above)
     sup = round(min(curr['low'] - (0.3 * atr_val), live_p - (0.6 * atr_val)), 1)
     res = round(max(curr['high'] + (0.3 * atr_val), live_p + (0.6 * atr_val)), 1)
 
-    # Top Metric Tiles
     st.markdown(f"""<div class="tile" style="margin-bottom:8px;">
     <div style="display:flex;justify-content:space-between;"><span class="lbl">{inst} SPOT</span><span class="lbl cb">TF: {timeframe} | ADX: {adx_val:.1f}</span></div>
     <div class="val cb" style="font-size:1.4rem;">₹{live_p:,.2f}</div>
@@ -157,7 +162,6 @@ if df is not None and len(df) > 20:
       <div class="tile"><span class="lbl">DAY LOW</span><div class="val cr">₹{day_low:,.1f}</div></div>
     </div></div>""", unsafe_allow_html=True)
 
-    # Technical Confluence Radar
     st.markdown(f"""<div class="tile" style="margin-bottom:8px;">
     <div style="display:flex;justify-content:space-between;"><span class="lbl">⚡ TECHNICAL RADAR</span><span class="lbl cb">STATUS: {'MARKET OPEN' if is_market_open else 'PRE/POST MARKET'}</span></div>
     <div class="g4">
@@ -167,7 +171,6 @@ if df is not None and len(df) > 20:
       <div class="tile"><span class="lbl">VWAP BIAS</span><div class="val {'cg' if live_p>=vwap_val else 'cr'}">{'ABOVE' if live_p>=vwap_val else 'BELOW'}</div></div>
     </div></div>""", unsafe_allow_html=True)
 
-    # Confluence Checks
     b_sc, be_sc = 0, 0
     b_reas, be_reas = [], []
     total_pillars = 7
@@ -200,7 +203,6 @@ if df is not None and len(df) > 20:
     st.markdown("#### 🎯 Execution Desk")
     pos = st.session_state.positions.get(inst)
 
-    # Active Position Tracking
     if pos is not None and pos.get('status') == 'active':
         is_l = pos['direction'] == 'BUY'
         pnl_pts = (live_p - pos['entry']) if is_l else (pos['entry'] - live_p)
@@ -227,10 +229,9 @@ if df is not None and len(df) > 20:
             st.session_state.positions[inst] = None
             st.rerun()
 
-    # Clean No-Trade / Valid Signal Branch
     else:
         if not is_market_open:
-            st.markdown("""<div class="card-no"><b style="color:#fbbf24;">⏳ MARKET CLOSED / PRE-OPEN</b><p style="margin:4px 0 0 0;font-size:0.84rem;color:#cbd5e1;">Live trade setups only trigger during NSE market hours (9:15 AM – 3:30 PM IST). Targets and triggers are suppressed to prevent false fills.</p></div>""", unsafe_allow_html=True)
+            st.markdown("""<div class="card-no"><b style="color:#fbbf24;">⏳ MARKET CLOSED / PRE-OPEN</b><p style="margin:4px 0 0 0;font-size:0.84rem;color:#cbd5e1;">Live trade setups only trigger during NSE market hours (9:15 AM – 3:30 PM IST). Signals are held to avoid pre-market false prints.</p></div>""", unsafe_allow_html=True)
 
         elif is_buy:
             entry = round(curr['high'] + max(0.15 * atr_val, 0.5), 2)
@@ -243,7 +244,7 @@ if df is not None and len(df) > 20:
             st.markdown(f"""<div class="card-buy">
               <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 CONFLUENCE TRIGGER: {lbl}</b><span class="ca">{b_sc}/{total_pillars} Confluent</span></div>
               <div class="g2">
-                <div class="tile"><span class="lbl">ENTRY (SPOT BREAKOUT)</span><div class="val cb">Buy Above ₹{entry:.2f}</div></div>
+                <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Buy Above ₹{entry:.2f}</div></div>
                 <div class="tile"><span class="lbl">STOP LOSS</span><div class="val cr">₹{sl:.2f} (-{risk:.2f})</div></div>
               </div>
               <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
@@ -267,7 +268,7 @@ if df is not None and len(df) > 20:
             st.markdown(f"""<div class="card-sell">
               <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 CONFLUENCE TRIGGER: {lbl}</b><span class="ca">{be_sc}/{total_pillars} Confluent</span></div>
               <div class="g2">
-                <div class="tile"><span class="lbl">ENTRY (SPOT BREAKDOWN)</span><div class="val cb">Sell Below ₹{entry:.2f}</div></div>
+                <div class="tile"><span class="lbl">ENTRY TRIGGER</span><div class="val cb">Sell Below ₹{entry:.2f}</div></div>
                 <div class="tile"><span class="lbl">STOP LOSS</span><div class="val cr">₹{sl:.2f} (-{risk:.2f})</div></div>
               </div>
               <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
@@ -284,7 +285,7 @@ if df is not None and len(df) > 20:
             top_s = max(b_sc, be_sc)
             st.markdown(f"""<div class="card-no">
               <div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ SCANNING FOR CONFLUENCE (NO TRADE)</b><span class="ca">{top_s}/{total_pillars} Pillars</span></div>
-              <p style="margin:4px 0 0 0;font-size:0.84rem;color:#cbd5e1;">Market is consolidating between Support ₹{sup:,.1f} and Resistance ₹{res:,.1f}. Current score is {top_s}/{total_pillars} (Requires ≥ 5 with ADX ≥ 18). No targets or entry triggers are generated until verified alignment occurs.</p>
+              <p style="margin:4px 0 0 0;font-size:0.84rem;color:#cbd5e1;">Consolidating between Support ₹{sup:,.1f} and Resistance ₹{res:,.1f}. Current score is {top_s}/{total_pillars} (Requires ≥ 5 with ADX ≥ 18). No targets or triggers are generated until verified confluence aligns.</p>
             </div>""", unsafe_allow_html=True)
 else:
     st.info("Fetching real-time market data...")
