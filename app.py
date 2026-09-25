@@ -1,4 +1,4 @@
-import streamlit as st, pandas as pd, numpy as np, yfinance as yf, feedparser
+import streamlit as st, pandas as pd, numpy as np, yfinance as yf, requests
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timezone, timedelta
 
@@ -28,7 +28,7 @@ html,body,[class*="css"],.stMarkdown{font-family:'Plus Jakarta Sans',sans-serif!
 </style>
 <div class="banner">
   <div style="font-size:1.3rem;font-weight:800;">⚡ TradeLense AI Terminal</div>
-  <div style="font-size:0.75rem;color:#94a3b8;">Nifty 50 Complete Universe & Quick Custom Search</div>
+  <div style="font-size:0.75rem;color:#94a3b8;">Smart Name Search & Real-Time Confluence Signals</div>
 </div>""", unsafe_allow_html=True)
 
 if "positions" not in st.session_state:
@@ -37,9 +37,8 @@ if "positions" not in st.session_state:
 col_tab1, col_tab2 = st.columns([1, 1.2])
 asset_tab = col_tab1.radio("Trading Module", ["Option Indices", "Shares"], horizontal=True)
 
-# Search is placed at Index 0 right at the top
 NIFTY_50_STOCKS = [
-    "🔍 Search / Custom Ticker",
+    "🔍 Search by Name / Company",
     "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "BHARTIARTL", "INFY", "ITC", "LT",
     "SBIN", "HINDUNILVR", "TATAMOTORS", "BAJFINANCE", "MARUTI", "SUNPHARMA", "AXISBANK",
     "KOTAKBANK", "NTPC", "TITAN", "ONGC", "M&M", "ADANIENT", "POWERGRID", "TATASTEEL",
@@ -49,23 +48,49 @@ NIFTY_50_STOCKS = [
     "APOLLOHOSP", "TATACONSUM", "BAJAJ-AUTO", "LTIM", "HINDALCO", "SHRIRAMFIN"
 ]
 
+@st.cache_data(ttl=3600)
+def search_stock_symbols(query):
+    if not query or len(query.strip()) < 2:
+        return []
+    url = f"https://autoc.finance.yahoo.com/autoc?query={query}&region=1&lang=en"
+    try:
+        r = requests.get(url, timeout=4).json()
+        results = []
+        for item in r.get('ResultSet', {}).get('Result', []):
+            sym = item.get('symbol', '')
+            name = item.get('name', '')
+            exch = item.get('exchDisp', '')
+            # Filter specifically for Indian NSE/BSE listed equities
+            if sym.endswith('.NS') or sym.endswith('.BO') or 'NSE' in exch or 'BSE' in exch:
+                clean_sym = sym if sym.endswith('.NS') else f"{sym.split('.')[0]}.NS"
+                results.append(f"{name} ({clean_sym})")
+        return results[:8]
+    except:
+        return []
+
 if asset_tab == "Option Indices":
     inst = col_tab2.selectbox("Target Index", ["NIFTY 50", "BANK NIFTY"])
     sym = "^NSEI" if inst == "NIFTY 50" else "^NSEBANK"
-    nse_sym = "NIFTY" if inst == "NIFTY 50" else "BANKNIFTY"
     step_k, lot_sz, delta_approx = (50, 50, 0.52) if inst == "NIFTY 50" else (100, 15, 0.52)
     is_stock = False
 else:
-    # Default selection starts at RELIANCE (Index 1) while Search is accessible immediately above it
-    pick = col_tab2.selectbox("Select Share (Nifty 50)", NIFTY_50_STOCKS, index=1)
-    if pick == "🔍 Search / Custom Ticker":
-        custom_input = st.text_input("Enter NSE Stock Symbol", value="ZOMATO", placeholder="e.g. ZOMATO, TRENT, JIOFIN").strip().upper()
-        inst = custom_input
-        sym = f"{custom_input}.NS" if not custom_input.endswith(".NS") else custom_input
+    pick = col_tab2.selectbox("Select Stock", NIFTY_50_STOCKS, index=1)
+    if pick == "🔍 Search by Name / Company":
+        search_query = st.text_input("Enter Company Name or Word", value="Policy bazaar", placeholder="e.g. Policy bazaar, Tata Motors, Zomato").strip()
+        matches = search_stock_symbols(search_query)
+        if matches:
+            chosen = st.selectbox("Select Matching Company", matches)
+            # Extract symbol inside parenthesis
+            sym = chosen.split('(')[-1].replace(')', '').strip()
+            inst = sym.replace('.NS', '')
+        else:
+            # Fallback
+            clean = search_query.upper().replace(' ', '')
+            sym = f"{clean}.NS"
+            inst = clean
     else:
         inst = pick
         sym = f"{pick}.NS"
-    nse_sym = inst
     step_k, lot_sz, delta_approx = 1, 1, 1.0
     is_stock = True
 
@@ -291,4 +316,4 @@ if df is not None and len(df) > 20:
               <p style="margin:4px 0 0 0;font-size:0.84rem;color:#cbd5e1;">Consolidating between Support ₹{sup:,.1f} and Resistance ₹{res:,.1f}. Current score is {top_s}/{total_pillars} (Requires ≥ 5 with ADX ≥ 18). No targets or triggers are generated until verified confluence aligns.</p>
             </div>""", unsafe_allow_html=True)
 else:
-    st.info("Fetching real-time market data...")
+    st.info("Fetching real-time market data... (Ensure the company name selected is listed on NSE)")
