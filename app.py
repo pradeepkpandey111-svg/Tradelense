@@ -28,7 +28,7 @@ html,body,[class*="css"],.stMarkdown{font-family:'Plus Jakarta Sans',sans-serif!
 </style>
 <div class="banner">
   <div style="font-size:1.3rem;font-weight:800;">⚡ TradeLense AI Terminal</div>
-  <div style="font-size:0.75rem;color:#94a3b8;">Nifty 50 Complete Universe & Custom Ticker Search</div>
+  <div style="font-size:0.75rem;color:#94a3b8;">Nifty 50 Complete Universe & Quick Custom Search</div>
 </div>""", unsafe_allow_html=True)
 
 if "positions" not in st.session_state:
@@ -37,14 +37,16 @@ if "positions" not in st.session_state:
 col_tab1, col_tab2 = st.columns([1, 1.2])
 asset_tab = col_tab1.radio("Trading Module", ["Option Indices", "Shares"], horizontal=True)
 
+# Search is placed at Index 0 right at the top
 NIFTY_50_STOCKS = [
+    "🔍 Search / Custom Ticker",
     "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "BHARTIARTL", "INFY", "ITC", "LT",
     "SBIN", "HINDUNILVR", "TATAMOTORS", "BAJFINANCE", "MARUTI", "SUNPHARMA", "AXISBANK",
     "KOTAKBANK", "NTPC", "TITAN", "ONGC", "M&M", "ADANIENT", "POWERGRID", "TATASTEEL",
     "COALINDIA", "BAJAJFINSV", "ASIANPAINT", "HCLTECH", "ADANIPORTS", "WIPRO", "NESTLEIND",
     "ULTRACEMCO", "GRASIM", "JSWSTEEL", "TECHM", "BPCL", "HEROMOTOCO", "EICHERMOT",
     "DRREDDY", "CIPLA", "INDUSINDBK", "SBILIFE", "BRITANNIA", "HDFCLIFE", "DIVISLAB",
-    "APOLLOHOSP", "TATACONSUM", "BAJAJ-AUTO", "LTIM", "HINDALCO", "SHRIRAMFIN", "🔍 Search / Custom Ticker"
+    "APOLLOHOSP", "TATACONSUM", "BAJAJ-AUTO", "LTIM", "HINDALCO", "SHRIRAMFIN"
 ]
 
 if asset_tab == "Option Indices":
@@ -54,9 +56,10 @@ if asset_tab == "Option Indices":
     step_k, lot_sz, delta_approx = (50, 50, 0.52) if inst == "NIFTY 50" else (100, 15, 0.52)
     is_stock = False
 else:
-    pick = col_tab2.selectbox("Select Share (Nifty 50)", NIFTY_50_STOCKS)
+    # Default selection starts at RELIANCE (Index 1) while Search is accessible immediately above it
+    pick = col_tab2.selectbox("Select Share (Nifty 50)", NIFTY_50_STOCKS, index=1)
     if pick == "🔍 Search / Custom Ticker":
-        custom_input = st.text_input("Enter NSE Stock Symbol (e.g. ZOMATO, TRENT)", value="ZOMATO").strip().upper()
+        custom_input = st.text_input("Enter NSE Stock Symbol", value="ZOMATO", placeholder="e.g. ZOMATO, TRENT, JIOFIN").strip().upper()
         inst = custom_input
         sym = f"{custom_input}.NS" if not custom_input.endswith(".NS") else custom_input
     else:
