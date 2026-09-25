@@ -13,7 +13,7 @@ html,body,[class*="css"],.stMarkdown{font-family:'Plus Jakarta Sans',sans-serif!
 .banner{background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:8px;}
 .card-buy{background:#062b20;border-left:5px solid #10b981;border-radius:10px;padding:12px;margin-bottom:8px;}
 .card-sell{background:#2d0c13;border-left:5px solid #f43f5e;border-radius:10px;padding:12px;margin-bottom:8px;}
-.card-no{background:#241703;border-left:5px solid #f59e0b;border-radius:10px;padding:12px;margin-bottom:8px;}
+.card-no{background:#18181b;border-left:5px solid #f59e0b;border-radius:10px;padding:14px;margin-bottom:8px;}
 .card-locked{background:#0c1a2b;border:1px solid #38bdf8;border-left:6px solid #38bdf8;border-radius:10px;padding:14px;margin-bottom:8px;}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;}
 .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:4px;}
@@ -28,7 +28,7 @@ html,body,[class*="css"],.stMarkdown{font-family:'Plus Jakarta Sans',sans-serif!
 </style>
 <div class="banner">
   <div style="font-size:1.3rem;font-weight:800;">⚡ TradeLense AI Terminal</div>
-  <div style="font-size:0.75rem;color:#94a3b8;">Real-Time Confluence Engine: Candles, EMA, RSI, Supertrend, VWAP & Targets</div>
+  <div style="font-size:0.75rem;color:#94a3b8;">Institutional Confluence Engine — Verified Setup & Level Calculation</div>
 </div>""", unsafe_allow_html=True)
 
 if "positions" not in st.session_state:
@@ -60,42 +60,12 @@ trading_capital = st.number_input("Account Capital (₹)", value=100000, step=25
 if auto_on:
     st_autorefresh(interval=15000, key="desk_refresh_sync")
 
-# 1. Macro & News Sentiments
-@st.cache_data(ttl=180)
-def get_macro():
-    res = {}
-    for k, s in [("S&P 500", "^GSPC"), ("Nasdaq", "^IXIC"), ("Crude", "CL=F"), ("VIX", "^INDIAVIX"), ("Nifty 50", "^NSEI")]:
-        try:
-            r = yf.download(s, period="2d", interval="1d", progress=False)['Close'].dropna()
-            if isinstance(r, pd.DataFrame): r = r.iloc[:, 0]
-            pct = float(((r.iloc[-1] - r.iloc[-2]) / r.iloc[-2]) * 100) if len(r) >= 2 else 0.0
-            res[k] = {"val": float(r.iloc[-1]), "pct": pct}
-        except: res[k] = {"val": 0.0, "pct": 0.0}
-    return res
+# Market Session Check
+now_ist = datetime.now(IST)
+m_mins = now_ist.hour * 60 + now_ist.minute
+is_market_open = (9 * 60 + 15) <= m_mins <= (15 * 60 + 30)
 
-mac = get_macro()
-nifty_pct = mac.get("Nifty 50", {}).get("pct", 0.0)
-broad_market_vote = "Bullish Tailwind 🟢" if nifty_pct >= 0.2 else ("Bearish Headwind 🔴" if nifty_pct <= -0.2 else "Neutral Drift ⚪")
-
-@st.cache_data(ttl=300)
-def fetch_news(q_sym, is_stk):
-    query = f"{q_sym}+share+price" if is_stk else "Nifty+Indian+stock+market"
-    f = feedparser.parse(f"https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en")
-    items, b_w, be_w, sc = [], ['surge', 'rally', 'jump', 'gain', 'profit', 'expansion', 'buy', 'high', 'breakout'], ['slump', 'drop', 'fall', 'probe', 'cut', 'loss', 'fraud', 'miss', 'breakdown'], 0
-    for e in f.entries[:3]:
-        t = e.title
-        p = any(w in t.lower() for w in b_w)
-        n = any(w in t.lower() for w in be_w)
-        if p: sc += 1
-        if n: sc -= 1
-        tag = "<span class='cg'>🟢 Bullish</span>" if p else ("<span class='cr'>🔴 Bearish</span>" if n else "<span class='ca'>⚪ Neutral</span>")
-        items.append({"title": t, "tag": tag})
-    return ("Bullish (+)" if sc > 0 else ("Bearish (-)" if sc < 0 else "Neutral")), sc
-
-news_sent, news_sc = fetch_news(nse_sym, is_stock)
-
-# 2. Data Fetcher with Validation
-@st.cache_data(ttl=12)
+@st.cache_data(ttl=15)
 def get_clean_candles(s, tf):
     try:
         raw = yf.download(s, period="5d", interval=tf, progress=False)
@@ -118,25 +88,24 @@ if df is not None and len(df) > 20:
     vol_col = next((x for x in df.columns if 'volume' in x), None)
     df['volume'] = pd.to_numeric(df[vol_col], errors='coerce').fillna(0) if vol_col else 0
 
-    # 1. EMAs (9, 21, 50)
+    # Indicators
     df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
     df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
     df['ema50'] = df['close'].ewm(span=50, adjust=False).mean()
 
-    # 2. RSI (14)
+    # RSI
     delta = df['close'].diff()
     up = delta.clip(lower=0).rolling(14).mean()
     down = -delta.clip(upper=0).rolling(14).mean().replace(0, np.nan)
     df['rsi'] = (100 - (100 / (1 + (up / down)))).fillna(50)
 
-    # 3. MACD (12, 26, 9)
-    e12 = df['close'].ewm(span=12, adjust=False).mean()
-    e26 = df['close'].ewm(span=26, adjust=False).mean()
+    # MACD
+    e12, e26 = df['close'].ewm(span=12, adjust=False).mean(), df['close'].ewm(span=26, adjust=False).mean()
     df['macd'] = e12 - e26
     df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
     df['macd_hist'] = df['macd'] - df['macd_signal']
 
-    # 4. ATR & Supertrend
+    # ATR & Supertrend
     tr = pd.concat([df['high'] - df['low'], (df['high'] - df['close'].shift()).abs(), (df['low'] - df['close'].shift()).abs()], axis=1).max(axis=1)
     df['atr'] = tr.rolling(14).mean().bfill()
     hl2 = (df['high'] + df['low']) / 2
@@ -148,7 +117,7 @@ if df is not None and len(df) > 20:
         else: st_dir[i] = st_dir[i-1]
     df['supertrend_dir'] = st_dir
 
-    # 5. Safe Session VWAP
+    # Safe Session VWAP
     if df['volume'].sum() > 0:
         df['date_grp'] = df['time'].dt.date
         df['pv'] = (df['high'] + df['low'] + df['close']) / 3 * df['volume']
@@ -157,7 +126,7 @@ if df is not None and len(df) > 20:
     else:
         df['vwap'] = ((df['high'] + df['low'] + df['close']) / 3).ewm(span=20, adjust=False).mean()
 
-    # 6. ADX (14)
+    # ADX
     up_m, dn_m = df['high'].diff(), -df['low'].diff()
     p_dm = np.where((up_m > dn_m) & (up_m > 0), up_m, 0.0)
     m_dm = np.where((dn_m > up_m) & (dn_m > 0), dn_m, 0.0)
@@ -166,18 +135,6 @@ if df is not None and len(df) > 20:
     m_di = 100 * pd.Series(m_dm, index=df.index).ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_w
     df['adx'] = (100 * (p_di - m_di).abs() / (p_di + m_di).replace(0, np.nan)).ewm(alpha=1/14, min_periods=14, adjust=False).mean().fillna(0)
 
-    # 7. Candlestick Pattern Detection
-    body = (df['close'] - df['open']).abs()
-    rng = (df['high'] - df['low']).replace(0, 0.01)
-    lower_wick = np.where(df['close'] >= df['open'], df['open'] - df['low'], df['close'] - df['low'])
-    upper_wick = np.where(df['close'] >= df['open'], df['high'] - df['close'], df['high'] - df['open'])
-
-    # Rejection Pin-bars / Hammer / Shooting Star
-    df['is_bull_pin'] = (lower_wick / rng >= 0.55) & (body / rng <= 0.35)
-    df['is_bear_pin'] = (upper_wick / rng >= 0.55) & (body / rng <= 0.35)
-    df['is_bull_engulf'] = (df['close'] > df['open']) & (df['close'].shift(1) < df['open'].shift(1)) & (df['close'] > df['open'].shift(1)) & (df['open'] < df['close'].shift(1))
-    df['is_bear_engulf'] = (df['close'] < df['open']) & (df['close'].shift(1) > df['open'].shift(1)) & (df['close'] < df['open'].shift(1)) & (df['open'] > df['close'].shift(1))
-
     curr, prev = df.iloc[-2], df.iloc[-3]
     live_p = float(df['close'].iloc[-1])
     day_high, day_low = float(df['high'].tail(50).max()), float(df['low'].tail(50).min())
@@ -185,12 +142,11 @@ if df is not None and len(df) > 20:
     vwap_val = float(curr['vwap'])
     adx_val = float(curr['adx'])
 
-    # Static Pivots
-    piv = (curr['high'] + curr['low'] + curr['close']) / 3
-    sup = round(min(curr['low'] - (0.4 * atr_val), (2 * piv) - curr['high']), 1)
-    res = round(max(curr['high'] + (0.4 * atr_val), (2 * piv) - curr['low']), 1)
+    # Strict Support & Resistance (Support MUST be strictly below Spot, Resistance strictly above)
+    sup = round(min(curr['low'] - (0.3 * atr_val), live_p - (0.6 * atr_val)), 1)
+    res = round(max(curr['high'] + (0.3 * atr_val), live_p + (0.6 * atr_val)), 1)
 
-    # Metrics Bar
+    # Top Metric Tiles
     st.markdown(f"""<div class="tile" style="margin-bottom:8px;">
     <div style="display:flex;justify-content:space-between;"><span class="lbl">{inst} SPOT</span><span class="lbl cb">TF: {timeframe} | ADX: {adx_val:.1f}</span></div>
     <div class="val cb" style="font-size:1.4rem;">₹{live_p:,.2f}</div>
@@ -201,10 +157,9 @@ if df is not None and len(df) > 20:
       <div class="tile"><span class="lbl">DAY LOW</span><div class="val cr">₹{day_low:,.1f}</div></div>
     </div></div>""", unsafe_allow_html=True)
 
-    # Technical Indicators Radar
-    candle_label = "Bullish Rejection" if curr['is_bull_pin'] or curr['is_bull_engulf'] else ("Bearish Rejection" if curr['is_bear_pin'] or curr['is_bear_engulf'] else "Neutral Bar")
+    # Technical Confluence Radar
     st.markdown(f"""<div class="tile" style="margin-bottom:8px;">
-    <div style="display:flex;justify-content:space-between;"><span class="lbl">⚡ TECHNICAL RADAR</span><span class="lbl cb">CANDLE: {candle_label}</span></div>
+    <div style="display:flex;justify-content:space-between;"><span class="lbl">⚡ TECHNICAL RADAR</span><span class="lbl cb">STATUS: {'MARKET OPEN' if is_market_open else 'PRE/POST MARKET'}</span></div>
     <div class="g4">
       <div class="tile"><span class="lbl">EMA 9/21/50</span><div class="val {'cg' if (curr['ema9']>curr['ema21'] and curr['close']>curr['ema50']) else 'cr'}">{'BULL' if (curr['ema9']>curr['ema21'] and curr['close']>curr['ema50']) else 'BEAR'}</div></div>
       <div class="tile"><span class="lbl">RSI (14)</span><div class="val {'cg' if curr['rsi']>=50 else 'cr'}">{curr['rsi']:.1f}</div></div>
@@ -212,70 +167,49 @@ if df is not None and len(df) > 20:
       <div class="tile"><span class="lbl">VWAP BIAS</span><div class="val {'cg' if live_p>=vwap_val else 'cr'}">{'ABOVE' if live_p>=vwap_val else 'BELOW'}</div></div>
     </div></div>""", unsafe_allow_html=True)
 
-    # Confluence Scoring Engine
+    # Confluence Checks
     b_sc, be_sc = 0, 0
     b_reas, be_reas = [], []
     total_pillars = 7
 
-    # 1. EMAs
     if curr['ema9'] > curr['ema21']: b_sc += 1; b_reas.append("EMA 9 > 21 Bullish Stack")
     else: be_sc += 1; be_reas.append("EMA 9 < 21 Bearish Stack")
 
-    if curr['close'] >= curr['ema50']: b_sc += 1; b_reas.append("Holding Above 50 EMA Baseline")
-    else: be_sc += 1; be_reas.append("Trading Below 50 EMA Baseline")
+    if curr['close'] >= curr['ema50']: b_sc += 1; b_reas.append("Above 50 EMA Baseline")
+    else: be_sc += 1; be_reas.append("Below 50 EMA Baseline")
 
-    # 2. RSI
-    if curr['rsi'] >= 50: b_sc += 1; b_reas.append(f"RSI in Bullish Zone ({curr['rsi']:.1f})")
-    else: be_sc += 1; be_reas.append(f"RSI in Bearish Zone ({curr['rsi']:.1f})")
+    if curr['rsi'] >= 52: b_sc += 1; b_reas.append(f"RSI Bullish ({curr['rsi']:.1f})")
+    elif curr['rsi'] <= 48: be_sc += 1; be_reas.append(f"RSI Bearish ({curr['rsi']:.1f})")
 
-    # 3. Supertrend
-    if curr['supertrend_dir'] == 1: b_sc += 1; b_reas.append("Supertrend Bullish Support")
-    else: be_sc += 1; be_reas.append("Supertrend Bearish Resistance")
+    if curr['supertrend_dir'] == 1: b_sc += 1; b_reas.append("Supertrend Bullish")
+    else: be_sc += 1; be_reas.append("Supertrend Bearish")
 
-    # 4. Session VWAP
-    if live_p >= vwap_val: b_sc += 1; b_reas.append(f"Holding Above Session VWAP (₹{vwap_val:.1f})")
-    else: be_sc += 1; be_reas.append(f"Trading Below Session VWAP (₹{vwap_val:.1f})")
+    if live_p >= vwap_val: b_sc += 1; b_reas.append("Above Session VWAP")
+    else: be_sc += 1; be_reas.append("Below Session VWAP")
 
-    # 5. MACD Histogram
     if curr['macd_hist'] >= 0: b_sc += 1; b_reas.append("MACD Bullish Histogram")
     else: be_sc += 1; be_reas.append("MACD Bearish Histogram")
 
-    # 6. Candlestick Confirmation
-    if curr['is_bull_pin'] or curr['is_bull_engulf'] or curr['close'] > prev['high']:
-        b_sc += 1; b_reas.append("Bullish Candlestick / High Breakout")
-    elif curr['is_bear_pin'] or curr['is_bear_engulf'] or curr['close'] < prev['low']:
-        be_sc += 1; be_reas.append("Bearish Candlestick / Low Breakdown")
+    if curr['close'] > prev['high']: b_sc += 1; b_reas.append("Prior Candle High Breakout")
+    elif curr['close'] < prev['low']: be_sc += 1; be_reas.append("Prior Candle Low Breakdown")
 
     needed = 5
-    is_buy = (b_sc >= needed) and (adx_val >= 17)
-    is_sell = (be_sc >= needed) and (b_sc < needed) and (adx_val >= 17)
+    is_buy = (b_sc >= needed) and (adx_val >= 18) and is_market_open
+    is_sell = (be_sc >= needed) and (b_sc < needed) and (adx_val >= 18) and is_market_open
 
-    # Dynamic Entry & Targets (Visible whether trade is taken or pending)
-    buffer = max(0.15 * atr_val, 0.5)
-    ce_entry = round(curr['high'] + buffer, 2)
-    ce_sl = round(max(sup, ce_entry - (1.3 * atr_val)), 2)
-    ce_risk = round(max(ce_entry - ce_sl, atr_val * 0.8), 2)
-    ce_t1 = round(ce_entry + (1.2 * ce_risk), 2)
-    ce_t2 = round(ce_entry + (2.0 * ce_risk), 2)
-
-    pe_entry = round(curr['low'] - buffer, 2)
-    pe_sl = round(min(res, pe_entry + (1.3 * atr_val)), 2)
-    pe_risk = round(max(pe_sl - pe_entry, atr_val * 0.8), 2)
-    pe_t1 = round(pe_entry - (1.2 * pe_risk), 2)
-    pe_t2 = round(pe_entry - (2.0 * pe_risk), 2)
-
-    st.markdown("#### 🎯 Execution Desk & Targets")
+    st.markdown("#### 🎯 Execution Desk")
     pos = st.session_state.positions.get(inst)
 
+    # Active Position Tracking
     if pos is not None and pos.get('status') == 'active':
         is_l = pos['direction'] == 'BUY'
         pnl_pts = (live_p - pos['entry']) if is_l else (pos['entry'] - live_p)
         col_p = 'cg' if pnl_pts >= 0 else 'cr'
 
         if (is_l and live_p <= pos['sl']) or (not is_l and live_p >= pos['sl']):
-            pos['status'] = 'SL Hit'; pos['exit_p'] = pos['sl']
+            pos['status'] = 'SL Hit'
         elif (is_l and live_p >= pos['t2']) or (not is_l and live_p <= pos['t2']):
-            pos['status'] = 'Target 2 Hit'; pos['exit_p'] = pos['t2']
+            pos['status'] = 'Target 2 Hit'
         elif ((is_l and live_p >= pos['t1']) or (not is_l and live_p <= pos['t1'])) and not pos.get('t1_hit'):
             pos['t1_hit'] = True; pos['sl'] = pos['entry']
 
@@ -284,8 +218,8 @@ if df is not None and len(df) > 20:
           <div style="display:flex;justify-content:space-between;"><b style="color:#38bdf8;">📌 ACTIVE TRADE: {pos['label']}</b><span class="ca">Entry ₹{pos['entry']:.2f}</span></div>
           <div class="tile" style="margin-top:4px;"><span class="lbl">LIVE SPOT P&L</span><div class="val {col_p}">{pnl_pts:+.2f} pts</div></div>
           <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-            <div class="rw"><span>🎯 Target 1 (50% Offload):</span><b class="cg">₹{pos['t1']:.2f}</b></div>
-            <div class="rw"><span>🏁 Target 2 (Runner):</span><b class="cg">₹{pos['t2']:.2f}</b></div>
+            <div class="rw"><span>🎯 Target 1:</span><b class="cg">₹{pos['t1']:.2f}</b></div>
+            <div class="rw"><span>🏁 Target 2:</span><b class="cg">₹{pos['t2']:.2f}</b></div>
             <div class="rw"><span>🛑 Stop Loss:</span><b class="cr">₹{pos['sl']:.2f}</b></div>
           </div>
         </div>""", unsafe_allow_html=True)
@@ -293,55 +227,64 @@ if df is not None and len(df) > 20:
             st.session_state.positions[inst] = None
             st.rerun()
 
+    # Clean No-Trade / Valid Signal Branch
     else:
-        if is_buy:
+        if not is_market_open:
+            st.markdown("""<div class="card-no"><b style="color:#fbbf24;">⏳ MARKET CLOSED / PRE-OPEN</b><p style="margin:4px 0 0 0;font-size:0.84rem;color:#cbd5e1;">Live trade setups only trigger during NSE market hours (9:15 AM – 3:30 PM IST). Targets and triggers are suppressed to prevent false fills.</p></div>""", unsafe_allow_html=True)
+
+        elif is_buy:
+            entry = round(curr['high'] + max(0.15 * atr_val, 0.5), 2)
+            sl = round(max(sup, entry - (1.3 * atr_val)), 2)
+            risk = round(max(entry - sl, atr_val * 0.8), 2)
+            t1, t2 = round(entry + (1.2 * risk), 2), round(entry + (2.0 * risk), 2)
             strike = int(round(live_p / step_k) * step_k)
             lbl = f"BUY {strike} CE" if not is_stock else f"BUY {inst}"
+
             st.markdown(f"""<div class="card-buy">
-              <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 HIGH CONFLUENCE SIGNAL: {lbl}</b><span class="ca">Score: {b_sc}/{total_pillars}</span></div>
+              <div style="display:flex;justify-content:space-between;"><b class="cg" style="font-size:1.1rem;">🟢 CONFLUENCE TRIGGER: {lbl}</b><span class="ca">{b_sc}/{total_pillars} Confluent</span></div>
               <div class="g2">
-                <div class="tile"><span class="lbl">TRIGGER (SPOT)</span><div class="val cb">Buy Above ₹{ce_entry:.2f}</div></div>
-                <div class="tile"><span class="lbl">STOP LOSS (SPOT)</span><div class="val cr">₹{ce_sl:.2f} (-{ce_risk:.2f})</div></div>
+                <div class="tile"><span class="lbl">ENTRY (SPOT BREAKOUT)</span><div class="val cb">Buy Above ₹{entry:.2f}</div></div>
+                <div class="tile"><span class="lbl">STOP LOSS</span><div class="val cr">₹{sl:.2f} (-{risk:.2f})</div></div>
               </div>
               <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-                <div class="rw"><span>🎯 Target 1 (1.2 R:R):</span><b class="cg">₹{ce_t1:.2f} (+{ce_t1-ce_entry:.2f} pts)</b></div>
-                <div class="rw"><span>🏁 Target 2 (2.0 R:R):</span><b class="cg">₹{ce_t2:.2f} (+{ce_t2-ce_entry:.2f} pts)</b></div>
+                <div class="rw"><span>🎯 Target 1:</span><b class="cg">₹{t1:.2f} (+{t1-entry:.2f} pts)</b></div>
+                <div class="rw"><span>🏁 Target 2:</span><b class="cg">₹{t2:.2f} (+{t2-entry:.2f} pts)</b></div>
               </div>
               <div class="reasons"><span>PILLARS:</span><br>• {'<br>• '.join(b_reas)}</div>
             </div>""", unsafe_allow_html=True)
-            if st.button(f"⚡ Lock & Track {lbl} Position", use_container_width=True, type="primary"):
-                st.session_state.positions[inst] = {"direction": "BUY", "label": lbl, "entry": ce_entry, "sl": ce_sl, "t1": ce_t1, "t2": ce_t2, "status": "active", "t1_hit": False}
+            if st.button(f"⚡ Take & Track {lbl} Call", use_container_width=True, type="primary"):
+                st.session_state.positions[inst] = {"direction": "BUY", "label": lbl, "entry": entry, "sl": sl, "t1": t1, "t2": t2, "status": "active", "t1_hit": False}
                 st.rerun()
 
         elif is_sell:
+            entry = round(curr['low'] - max(0.15 * atr_val, 0.5), 2)
+            sl = round(min(res, entry + (1.3 * atr_val)), 2)
+            risk = round(max(sl - entry, atr_val * 0.8), 2)
+            t1, t2 = round(entry - (1.2 * risk), 2), round(entry - (2.0 * risk), 2)
             strike = int(round(live_p / step_k) * step_k)
             lbl = f"BUY {strike} PE" if not is_stock else f"SHORT {inst}"
+
             st.markdown(f"""<div class="card-sell">
-              <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 HIGH CONFLUENCE SIGNAL: {lbl}</b><span class="ca">Score: {be_sc}/{total_pillars}</span></div>
+              <div style="display:flex;justify-content:space-between;"><b class="cr" style="font-size:1.1rem;">🔴 CONFLUENCE TRIGGER: {lbl}</b><span class="ca">{be_sc}/{total_pillars} Confluent</span></div>
               <div class="g2">
-                <div class="tile"><span class="lbl">TRIGGER (SPOT)</span><div class="val cb">Buy Below ₹{pe_entry:.2f}</div></div>
-                <div class="tile"><span class="lbl">STOP LOSS (SPOT)</span><div class="val cr">₹{pe_sl:.2f} (-{pe_risk:.2f})</div></div>
+                <div class="tile"><span class="lbl">ENTRY (SPOT BREAKDOWN)</span><div class="val cb">Sell Below ₹{entry:.2f}</div></div>
+                <div class="tile"><span class="lbl">STOP LOSS</span><div class="val cr">₹{sl:.2f} (-{risk:.2f})</div></div>
               </div>
               <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-                <div class="rw"><span>🎯 Target 1 (1.2 R:R):</span><b class="cg">₹{pe_t1:.2f} (+{pe_entry-pe_t1:.2f} pts)</b></div>
-                <div class="rw"><span>🏁 Target 2 (2.0 R:R):</span><b class="cg">₹{pe_t2:.2f} (+{pe_entry-pe_t2:.2f} pts)</b></div>
+                <div class="rw"><span>🎯 Target 1:</span><b class="cg">₹{t1:.2f} (+{entry-t1:.2f} pts)</b></div>
+                <div class="rw"><span>🏁 Target 2:</span><b class="cg">₹{t2:.2f} (+{entry-t2:.2f} pts)</b></div>
               </div>
               <div class="reasons"><span>PILLARS:</span><br>• {'<br>• '.join(be_reas)}</div>
             </div>""", unsafe_allow_html=True)
-            if st.button(f"⚡ Lock & Track {lbl} Position", use_container_width=True, type="primary"):
-                st.session_state.positions[inst] = {"direction": "SELL", "label": lbl, "entry": pe_entry, "sl": pe_sl, "t1": pe_t1, "t2": pe_t2, "status": "active", "t1_hit": False}
+            if st.button(f"⚡ Take & Track {lbl} Put", use_container_width=True, type="primary"):
+                st.session_state.positions[inst] = {"direction": "SELL", "label": lbl, "entry": entry, "sl": sl, "t1": t1, "t2": t2, "status": "active", "t1_hit": False}
                 st.rerun()
 
         else:
             top_s = max(b_sc, be_sc)
             st.markdown(f"""<div class="card-no">
-              <div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ SCANNING CONFLUENCE (WAITING)</b><span class="ca">{top_s}/{total_pillars} Confluence</span></div>
-              <p style="margin:4px 0 0 0;font-size:0.84rem;">Score: {top_s}/{total_pillars} (Requires ≥ 5 with ADX ≥ 17). Rangebound between Support ₹{sup:.1f} and Resistance ₹{res:.1f}.</p>
-              <div style="background:#090e17;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:6px;">
-                <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;margin-bottom:2px;">PROJECTED TARGETS ON BREAKOUT:</div>
-                <div class="rw"><span>If Upside Breaks (₹{ce_entry:.1f}):</span><b class="cg">T1: ₹{ce_t1:.1f} | T2: ₹{ce_t2:.1f}</b></div>
-                <div class="rw"><span>If Downside Breaks (₹{pe_entry:.1f}):</span><b class="cr">T1: ₹{pe_t1:.1f} | T2: ₹{pe_t2:.1f}</b></div>
-              </div>
+              <div style="display:flex;justify-content:space-between;"><b style="color:#fbbf24;">⛔ SCANNING FOR CONFLUENCE (NO TRADE)</b><span class="ca">{top_s}/{total_pillars} Pillars</span></div>
+              <p style="margin:4px 0 0 0;font-size:0.84rem;color:#cbd5e1;">Market is consolidating between Support ₹{sup:,.1f} and Resistance ₹{res:,.1f}. Current score is {top_s}/{total_pillars} (Requires ≥ 5 with ADX ≥ 18). No targets or entry triggers are generated until verified alignment occurs.</p>
             </div>""", unsafe_allow_html=True)
 else:
-    st.info("Pulling clean market feed...")
+    st.info("Fetching real-time market data...")
